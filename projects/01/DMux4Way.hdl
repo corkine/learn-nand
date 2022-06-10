@@ -16,5 +16,18 @@ CHIP DMux4Way {
     OUT a, b, c, d;
 
     PARTS:
-    // Put your code here:
+    // 错误，in 是一位的，为 0 就错了
+    // Not(in=sel[1],out=Not1);
+    // Not(in=sel[0],out=Not0);
+    // And(a=Not0,b=Not1,out=sa);
+    // And(a=in, b=sa, out=a);
+    // And(a=Not0,b=sel[1],out=sb);
+    // And(a=in,b=sb, out=b);
+    Not(in=sel[1],out=Not1);
+    And(a=sel[0],b=Not1,out=sAB);
+    And(a=in,b=Not1,out=iAB);
+    DMux(in=iAB, sel=sAB, a=a, b=b);
+    And(a=sel[1],b=sel[0],out=sCD);
+    And(a=sel[1],b=in,out=iCD);
+    DMux(in=iCD, sel=sCD, a=c, b=d);
 }
