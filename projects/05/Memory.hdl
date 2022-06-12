@@ -27,5 +27,12 @@ CHIP Memory {
     OUT out[16];
 
     PARTS:
-    // Put your code here:
+    //0 00 / 166383 01 / 166384 10 / 24576 11
+    DMux(in=load, sel=address[14..14], a=ram1, b=screen1);
+    RAM16K(in=in, load=ram1, address=address[0..13], out=r);
+    Screen(in=in, load=screen1, address=address[0..12], out=s);
+    //how to access keyboard memory?
+    //if load set and address point to Keyboard, then k will write to out
+    Keyboard(out=k);
+    Mux4Way16(a=r, b=r, c=s, d=k, sel=address[13..14], out=out);
 }

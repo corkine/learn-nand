@@ -39,5 +39,36 @@ CHIP CPU {
         pc[15];          // address of next instruction
 
     PARTS:
-    // Put your code here:
+    Not(in=instruction[15], out=nonins);
+    Mux16(a=outalu, b=instruction, sel=nonins, out=ina);
+    //A指令或者 C指令的 dest 存在，并非计算
+    Or(a=nonins,b=instruction[5],out=loada);
+    ARegister(in=ina, load=loada, out=outa, out[0..14]=addressM);
+    //C指令且 a-bits 为 1, 操纵 M 而非 A
+    And(a=instruction[15],b=instruction[12],out=loadm);
+    Mux16(a=outa, b=inM, sel=loadm, out=outam);
+    //c1 和 c2/6 决定 D 为 0 和为负，c3 和 c4/6 决定 AM 为 0 和为负
+    ALU(x=outd, y=outam, 
+        zx=instruction[11], nx=instruction[10], 
+        zy=instruction[9], ny=instruction[8], 
+        f=instruction[7], no=instruction[6], 
+        out=outM, out=outalu, zr=zr, ng=ng);
+    //C指令且 dest 包含 D(d2)
+    And(a=instruction[15],b=instruction[4],out=loadd);
+    DRegister(in=outalu,load=loadd,out=outd);
+    //C指令且 dest 包含 M(d3)
+    And(a=instruction[15],b=instruction[3],out=writeM);
+    //C指令且 ALU 运算结果满足 jmp 条件
+    Not(in=ng,out=nonng);
+    Not(in=zr,out=nonzr);
+    And(a=instruction[15],b=instruction[0],out=jgt);
+    And(a=nonng, b=nonzr, out=nonngnonzr);
+    And(a=jgt, b=nonngnonzr, out=jcase1);
+    And(a=instruction[15],b=instruction[1],out=je);
+    And(a=je, b=zr, out=jcase2);
+    And(a=instruction[15],b=instruction[2],out=jlt);
+    And(a=jlt,b=ng,out=jcase3);
+    Or(a=jcase1,b=jcase2,out=jcase12);
+    Or(a=jcase12,b=jcase3,out=loadpc);
+    PC(in=outa, load=loadpc, inc=true, reset=reset, out[0..14]=pc);
 }
