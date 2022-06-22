@@ -23,3 +23,7 @@ See `projects/04`
 ## Chapter05：计算机体系结构
 
 See `projects/05`
+
+## Chapter06：汇编编译器
+
+See `projects/06`，使用 Clojure 实现的汇编编译器。
