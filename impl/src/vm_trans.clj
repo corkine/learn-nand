@@ -15,37 +15,28 @@
     (.write w (str/join "\n" output))))
 
 (defn cmd-type
-  "返回当前命令的类型，有如下几种，如果不是命令，返回 :ERROR
-  :C-ARITHMETIC 算术命令，包括 add,sub,neg,eq,gt,lt,and,or,not
-  :C-PUSH 压入堆栈命令，包括 push ?? ??
-  :C-POP 弹出堆栈命令，包括 pop ?? ??
-  :C-LABEL 标签命令，包括 label !!
-  :C-GOTO 跳转命令，包括 goto !!
-  :C-IF 判断命令，包括 if-goto !!
-  :C-FUNCTION 函数定义，包括 function !! !!
-  :C-RETURN 返回命令，格式 return
-  :C-CALL 调用命令，格式 call !! !!
-  :ERROR 无法识别的其他命令"
+  "返回当前命令的类型，如果不是命令，返回 :ERROR"
   [cmd]
   (let [cmd (-> cmd (str/trim) (str/lower-case))]
-    (cond (contains? #{"add" "sub" "neg" "eq" "gt" "lt" "and" "or" "not"} cmd)
-          :C-ARITHMETIC
-          (str/includes? cmd "push")
-          :C-PUSH
-          (str/includes? cmd "pop")
-          :C-POP
-          (str/includes? cmd "label")
-          :C-LABEL
-          (str/includes? cmd "goto")
-          :C-GOTO
-          (str/includes? cmd "if-goto")
-          :C-IF
-          (str/includes? cmd "function")
-          :C-FUNCTION
-          (str/includes? cmd "return")
-          :C-RETURN
-          (str/includes? cmd "call")
-          :C-CALL
+    ;算术命令，包括 add,sub,neg,eq,gt,lt,and,or,not
+    (cond (contains? #{"add" "sub" "neg" "eq" "gt" "lt"
+                       "and" "or" "not"} cmd) :C-ARITHMETIC
+          ;压入堆栈命令，包括 push ?? ??
+          (str/includes? cmd "push") :C-PUSH
+          ;弹出堆栈命令，包括 pop ?? ??
+          (str/includes? cmd "pop") :C-POP
+          ;标签命令，包括 label !!
+          (str/includes? cmd "label") :C-LABEL
+          ;跳转命令，包括 goto !!
+          (str/includes? cmd "goto") :C-GOTO
+          ;判断命令，包括 if-goto !!
+          (str/includes? cmd "if-goto") :C-IF
+          ;函数定义，包括 function !! !!
+          (str/includes? cmd "function") :C-FUNCTION
+          ;返回命令，格式 return
+          (str/includes? cmd "return") :C-RETURN
+          ;调用命令，格式 call !! !!
+          (str/includes? cmd "call") :C-CALL
           :else :ERROR)))
 
 (defn arg1
@@ -90,11 +81,11 @@
           ["@SP" "A=M" "A=A-1" "M=!M"]
           (contains? #{"eq" "gt" "lt"} cmd)
           (let [index (next-int)
-                pass (str "PASS." index)
-                not-pass (str "NOT_PASS." index)
-                end (str "END." index)]
-            ["@SP" "M=M-1" "A=M" "D=M" ;出栈 y，栈想下移动一格
-             "A=A-1" "M=M-D" "D=M" ;计算 x - y 保存到 x 处
+                pass (str "pass" index)
+                not-pass (str "notPass" index)
+                end (str "end" index)]
+            ["@SP" "M=M-1" "A=M" "D=M"                      ;出栈 y，栈想下移动一格
+             "A=A-1" "M=M-D" "D=M"                          ;计算 x - y 保存到 x 处
              (str "@" pass)
              (cond (= cmd "eq") "D;JEQ"
                    (= cmd "gt") "D;JGT"
@@ -102,7 +93,7 @@
              (str "@" not-pass)
              "0;JMP"
              (str "(" pass ")")
-             "@SP" "A=M" "A=A-1" "M=-1" ;将栈第一个元素(计算结果) 更新
+             "@SP" "A=M" "A=A-1" "M=-1"                     ;将栈第一个元素(计算结果) 更新
              (str "@" end)
              "0;JMP"
              (str "(" not-pass ")")
@@ -110,27 +101,45 @@
              (str "(" end ")")]))))
 
 (defn trans-push-pop
-  "将内存操作转换为汇编代码
-  push constant x: @SP M=M+1 @x D=A @SP A=M M=D"
-  [cmd segment index]
-  (println "trans push/pop with" cmd segment index)
-  (cond (and (= cmd "push")
-             (= segment "constant")
-             (any? (Integer/parseInt (str index))))
-        [(str "@" index) "D=A" "@SP" "A=M" "M=D" "@SP" "M=M+1"]
-        :else
-        (throw (RuntimeException. "尚未实现此转换"))))
+  "将内存操作转换为汇编代码"
+  [file-name cmd segment index]
+  (let [reg (case segment "local" "@LCL" "argument" "@ARG"
+                          "this" "@THIS" "that" "@THAT"
+                          "should_not_be_here")
+        edit-val-type #{"local" "argument" "this" "that"}
+        edit-addr-type #{"pointer" "temp"}]
+    (cond (and (= cmd "push") (= segment "constant"))
+          [(str "@" index) "D=A" "@SP" "A=M" "M=D" "@SP" "M=M+1"]
+          (and (= cmd "push") (contains? edit-val-type segment))
+          [(str "@" index) "D=A" reg "A=M" "A=D+A" "D=M"
+           "@SP" "A=M" "M=D" "@SP" "M=M+1"]
+          (and (= cmd "pop") (contains? edit-val-type segment))
+          ["@SP" "M=M-1" (str "@" index) "D=A" reg "A=M" "D=D+A" "@R13" "M=D"
+           "@SP" "A=M" "D=M" "@R13" "A=M" "M=D"]
+          (and (= cmd "push") (contains? edit-addr-type segment))
+          [(str "@" index) "D=A"
+           (if (= segment "pointer") "@THIS" "@R5") "A=D+A" "D=M"
+           "@SP" "A=M" "M=D" "@SP" "M=M+1"]
+          (and (= cmd "pop") (contains? edit-addr-type segment))
+          [(str "@" index) "D=A"
+           (if (= segment "pointer") "@THIS" "@R5") "A=D+A" "D=M"
+           "@R13" "M=D" "@SP" "M=M-1" "A=M" "D=M" "@R13" "M=D"]
+          (and (= cmd "push") (= "static" segment))
+          [(str "@" file-name "." index) "D=M" "@SP" "A=M" "M=D" "@SP" "M=M+1"]
+          (and (= cmd "pop") (= "static" segment))
+          ["@SP" "M=M-1" "A=M" "D=M" (str "@" file-name "." index) "M=D"]
+          :else (throw (RuntimeException. "未实现此转换")))))
 
 (defn translate
   "对过滤后的纯命令执行翻译"
-  [cmds]
+  [file-name cmds]
   (reduce (fn [agg cmd]
             (println "now trans" cmd)
             (if-let [res
                      (case (cmd-type cmd)
                        :C-ARITHMETIC (trans-arithmetic cmd)
-                       :C-POP (trans-push-pop "pop" (arg1 cmd) (arg2 cmd))
-                       :C-PUSH (trans-push-pop "push" (arg1 cmd) (arg2 cmd))
+                       :C-POP (trans-push-pop file-name "pop" (arg1 cmd) (arg2 cmd))
+                       :C-PUSH (trans-push-pop file-name "push" (arg1 cmd) (arg2 cmd))
                        (throw (RuntimeException. (str "尚未实现此命令处理" cmd))))]
               (into agg res)
               agg))
@@ -149,7 +158,12 @@
                       (-> cmd (str/split #"//")
                           first (str/trim)))))) [] cmds))
 
-(->> (read-vm "C:\\Users\\mazhangjing\\Desktop\\learn-nand\\projects\\07\\StackArithmetic\\StackTest\\StackTest.vm")
-    (pure-cmds)
-    (translate)
-    (save-to "C:\\Users\\mazhangjing\\Desktop\\learn-nand\\projects\\07\\result.asm"))
+#_(->> (read-vm "C:\\Users\\mazhangjing\\Desktop\\learn-nand\\projects\\07\\StackArithmetic\\StackTest\\StackTest.vm")
+       (pure-cmds)
+       (translate)
+       (save-to "C:\\Users\\mazhangjing\\Desktop\\learn-nand\\projects\\07\\result.asm"))
+
+(->> (read-vm "../projects/07/MemoryAccess/BasicTest/BasicTest.vm")
+     (pure-cmds)
+     (translate "BasicTest")
+     (save-to "../projects/07/MemoryAccess/BasicTest/BasicTest.asm"))

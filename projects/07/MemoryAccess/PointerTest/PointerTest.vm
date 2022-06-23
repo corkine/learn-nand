@@ -20,3 +20,32 @@ push this 2
 sub
 push that 6
 add
+
+
+//处理 pointer 本质是修改 this/that 的基址
+//pop pointer x
+@x
+D=A
+@THIS
+A=D+A
+D=M
+@R13
+M=D
+@SP
+M=M-1
+A=M
+D=M
+@R13
+M=D
+
+//push pointer x
+@x
+D=A
+@THIS
+A=D+A
+D=M
+@SP
+A=M
+M=D
+@SP
+M=M+1
