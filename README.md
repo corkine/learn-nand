@@ -26,4 +26,8 @@ See `projects/05`
 
 ## Chapter06：汇编编译器
 
-See `projects/06`，使用 Clojure 实现的汇编编译器。
+See `projects/06`，使用 Clojure 实现的汇编编译器，代码参见 `impl/src/assembler.clj`。
+
+## Chapter07：虚拟机 IR 后端（算术逻辑运算和内存访问）
+
+See `projects/07`，使用 Clojure 实现的 IR 后端翻译器（部分），代码参见 `impl/src/vm_trans.clj`。
