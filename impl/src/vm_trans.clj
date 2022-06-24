@@ -1,6 +1,7 @@
 (ns vm-trans
   (:require [clojure.java.io :as io]
-            [clojure.string :as str]))
+            [clojure.string :as str])
+  (:import (java.nio.file Paths)))
 
 (defn read-vm
   "从文件中读入 .vm 程序，返回 [cmd]"
@@ -122,8 +123,8 @@
            "@SP" "A=M" "M=D" "@SP" "M=M+1"]
           (and (= cmd "pop") (contains? edit-addr-type segment))
           [(str "@" index) "D=A"
-           (if (= segment "pointer") "@THIS" "@R5") "A=D+A" "D=M"
-           "@R13" "M=D" "@SP" "M=M-1" "A=M" "D=M" "@R13" "M=D"]
+           (if (= segment "pointer") "@THIS" "@R5") "A=D+A" "D=A"
+           "@R13" "M=D" "@SP" "M=M-1" "A=M" "D=M" "@R13" "A=M" "M=D"]
           (and (= cmd "push") (= "static" segment))
           [(str "@" file-name "." index) "D=M" "@SP" "A=M" "M=D" "@SP" "M=M+1"]
           (and (= cmd "pop") (= "static" segment))
@@ -134,14 +135,13 @@
   "对过滤后的纯命令执行翻译"
   [file-name cmds]
   (reduce (fn [agg cmd]
-            (println "now trans" cmd)
             (if-let [res
                      (case (cmd-type cmd)
                        :C-ARITHMETIC (trans-arithmetic cmd)
                        :C-POP (trans-push-pop file-name "pop" (arg1 cmd) (arg2 cmd))
                        :C-PUSH (trans-push-pop file-name "push" (arg1 cmd) (arg2 cmd))
                        (throw (RuntimeException. (str "尚未实现此命令处理" cmd))))]
-              (into agg res)
+              (into (conj agg (str "//" cmd)) res)
               agg))
           [] cmds))
 
@@ -158,12 +158,11 @@
                       (-> cmd (str/split #"//")
                           first (str/trim)))))) [] cmds))
 
-#_(->> (read-vm "C:\\Users\\mazhangjing\\Desktop\\learn-nand\\projects\\07\\StackArithmetic\\StackTest\\StackTest.vm")
+(let [file "C:\\Users\\mazhangjing\\Desktop\\learn-nand\\projects\\07\\StackArithmetic\\StackTest\\StackTest.vm"
+      input (Paths/get file (into-array [""]))
+      pure-name (-> (str (.getFileName input)) (str/split #"\.") first)
+      output (.resolve (.getParent input) (str pure-name ".asm"))]
+  (->> (read-vm file)
        (pure-cmds)
-       (translate)
-       (save-to "C:\\Users\\mazhangjing\\Desktop\\learn-nand\\projects\\07\\result.asm"))
-
-(->> (read-vm "../projects/07/MemoryAccess/BasicTest/BasicTest.vm")
-     (pure-cmds)
-     (translate "BasicTest")
-     (save-to "../projects/07/MemoryAccess/BasicTest/BasicTest.asm"))
+       (translate pure-name)
+       (save-to (str output))))

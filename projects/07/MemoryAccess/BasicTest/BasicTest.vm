@@ -17,15 +17,15 @@ push constant 45
 pop that 5
 pop that 2
 push constant 510
-pop temp 6
-push local 0
-push that 5
+pop temp 6 //139
+push local 0 //153
+push that 5 //164
+add //175
+push argument 1 //181
+sub //192
+push this 6 //198
+push this 6 //209
 add
-push argument 1
 sub
-push this 6
-push this 6
-add
-sub
-push temp 6
+push temp 6 //232
 add
