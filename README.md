@@ -31,3 +31,7 @@ See `projects/06`，使用 Clojure 实现的汇编编译器，代码参见 `impl
 ## Chapter07：虚拟机 IR 后端（算术逻辑运算和内存访问）
 
 See `projects/07`，使用 Clojure 实现的 IR 后端翻译器（部分），代码参见 `impl/src/vm_trans.clj`。
+
+## Chapter08：虚拟机 IR 后端（控制和子过程切换）
+
+See `projects/08`，使用 Clojure 实现的 IR 后端翻译器（部分），代码参见 `impl/src/vm_trans.clj`。
