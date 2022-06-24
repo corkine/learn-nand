@@ -5,6 +5,8 @@
 
 (defonce index (atom 0))
 
+(defonce current-func (atom ""))
+
 (defn next-int []
   (reset! index (+ @index 1))
   @index)
@@ -81,9 +83,9 @@
           ["@SP" "A=M" "A=A-1" "M=!M"]
           (contains? #{"eq" "gt" "lt"} cmd)
           (let [index (next-int)
-                pass (str "pass" index)
-                not-pass (str "notPass" index)
-                end (str "end" index)]
+                pass (str @current-func "$" "pass" index)
+                not-pass (str @current-func "$" "notPass" index)
+                end (str @current-func "$" "end" index)]
             ["@SP" "M=M-1" "A=M" "D=M"                      ;出栈 y，栈想下移动一格
              "A=A-1" "M=M-D" "D=M"                          ;计算 x - y 保存到 x 处
              (str "@" pass)
@@ -130,20 +132,20 @@
           ["@SP" "M=M-1" "A=M" "D=M" (str "@" file-name "." index) "M=D"]
           :else (throw (RuntimeException. "未实现此转换")))))
 
-;;TODO label 和 goto label 应该使用 functionName$label 的形式
-;;TODO goto label 必须位于同一程序内，if-goto 必须位于同一函数内
+(defn classFunc->func [cf] cf #_(second (str/split cf #"\.")))
+
 (defn trans-label
   "翻译 label 命令"
-  [label] [(str "(" label ")")])
+  [label] [(str "(" @current-func "$" label ")")])
 
 (defn trans-goto
   "翻译 goto 命令"
   [label]
-  [(str "@" label) "0;JMP"])
+  [(str "@" @current-func "$" label) "0;JMP"])
 
 (defn trans-if
   "翻译条件跳转命令"
-  [label] ["@SP" "M=M-1" "A=M" "D=M" (str "@" label) "D;JNE"])
+  [label] ["@SP" "M=M-1" "A=M" "D=M" (str "@" @current-func "$" label) "D;JNE"])
 
 (defn trans-call
   "翻译函数调用命令
@@ -159,10 +161,10 @@
   重设被调用者 LCL 为 SP
   跳转到函数入口并开始执行代码"
   [func-name ^Integer numArgs]
-  (let [point (str "return" (next-int))]
+  (let [point (str (classFunc->func func-name) "$return" (next-int))]
     (flatten
       [;将返回值保存在堆栈中，并增长堆栈
-       (str "@" point) "D=A" "@SP" "M=D" "M=M+1"
+       (str "@" point) "D=A" "@SP" "A=M" "M=D" "@SP" "M=M+1"
        ;保存当前调用者 LCL, ARG, THIS, THAT 并增长堆栈
        "@LCL" "D=M" "@SP" "A=M" "M=D" "@SP" "M=M+1"
        "@ARG" "D=M" "@SP" "A=M" "M=D" "@SP" "M=M+1"
@@ -174,50 +176,60 @@
        ;重置 LCL 的位置为当前 SP
        "@SP" "D=M" "@LCL" "M=D"
        ;跳转到函数入口
-       (str "@" func-name) "0;JEQ"
+       (str "@" (classFunc->func func-name)) "0;JEQ"
        ;继续执行调用者指令的标记
-       (str "(" point  ")")])))
+       (str "(" point ")")])))
 
 (defn trans-return
   "翻译返回命令
   |arg0    | <- 调用者压入被调用者的参数           -> |ret value|
-  |arg1    | <- 调用者压入被调用者的参数           -> |SP HERE  |
+  |arg1    | <- 调用者压入被调用者的参数           -> |SPv HERE |
   |ret addr| <- 被调用者压入，调用者获取执行结果
-  |LCL     | <- 调用者压入，被调用者 return 前还原
-  |ARG     | <- 调用者压入，被调用者 return 前还原
-  |THIS    | <- 调用者压入，被调用者 return 前还原
-  |THAT    | <- 调用者压入，被调用者 return 前还原
-  |xxxx    | <- 被调用者 LCL 位置
-  |SP HERE | <- 被调用者 SP 位置"
+  |LCLv    | <- 调用者压入，被调用者 return 前还原
+  |ARGv    | <- 调用者压入，被调用者 return 前还原
+  |THISv   | <- 调用者压入，被调用者 return 前还原
+  |THATv   | <- 调用者压入，被调用者 return 前还原
+  |LCL1    | <- 被调用者 LCL 值的位置
+  |LCL2    |
+  |SPv HERE| <- 被调用者 SP 值的位置"
   []
   (let [val (next-int)
-        tempVar (str "@temp" val)
-        retVar (str "@ret" val)]
+        tempVar (str "@R13") #_(str "@temp" val)
+        retVar (str "@R14") #_(str "@ret" val)]
     (flatten [;保存 LCL 位置到临时变量 FRAME
               "@LCL" "D=M" tempVar "M=D"
               ;获取返回后下一条指令的地址 -- FRAME - 5 偏移处的值
-              "@5" "D=A" tempVar "A=A-D" "D=M" retVar "M=D"
-              ;将当前函数的返回值放到 ARG 位置(SP 上一个位置/栈顶)，以便调用者获取
-              "@SP" "M=M-1" "A=M" "D=M" "@ARG" "M=D"
+              "@5" "D=A" tempVar "D=M-D" retVar "M=D"
+              ;将当前函数的返回值放到 ARG 指针位置(栈顶)，以便调用者获取
+              "@SP" "M=M-1" "A=M" "D=M" "@ARG" "A=M" "M=D"
               ;恢复调用者 SP = ARG + 1
-              "@ARG" "D=A+1" "@SP" "M=D"
+              "@ARG" "D=M+1" "@SP" "M=D"
               ;恢复 THAT, THIS, ARG, LCL -- FRAME - 1..4 偏移处的值
-              tempVar "D=A" "@1" "A=D-A" "D=M" "@THAT" "M=D"
-              tempVar "D=A" "@2" "A=D-A" "D=M" "@THIS" "M=D"
-              tempVar "D=A" "@3" "A=D-A" "D=M" "@ARG" "M=D"
-              tempVar "D=A" "@4" "A=D-A" "D=M" "@LCL" "M=D"
+              tempVar "D=M" "@1" "A=D-A" "D=M" "@THAT" "M=D"
+              tempVar "D=M" "@2" "A=D-A" "D=M" "@THIS" "M=D"
+              tempVar "D=M" "@3" "A=D-A" "D=M" "@ARG" "M=D"
+              tempVar "D=M" "@4" "A=D-A" "D=M" "@LCL" "M=D"
+              "// 6-- go to return address"
               ;跳转到调用者原来指令位置继续执行
-              retVar "0;JEQ"])))
+              retVar "A=M" "A=M" "0;JEQ"])))
 
 (defn trans-function
   "翻译函数定义命令，这里的函数名包含了文件名，格式为 文件名.函数名。
-  根据参数的个数将 local 对应偏移位置的值进行 0 初始化"
-  [filename func-name ^Integer numLocals]
-  (vec (flatten [(str "(" func-name ")")
-                 (map (fn [_] (trans-push-pop filename "push" "constant" 0))
-                      (range 0 numLocals))
-                 (map #(trans-push-pop filename "pop" "local" %)
-                      (range 0 numLocals))])))
+  根据参数的个数将 local 对应偏移位置的值进行 0 初始化，且递增 SP
+  |arg0    |
+  |arg1    |
+  |ret addr|
+  |LCL     |(调用者的 LCL 基址值)
+  |ARG     |
+  |THIS    |
+  |THAT    |
+  |local0  | <- 清空自己的 LCL <- @LCL 寄存器指向的位置
+  |local1  | <- 清空自己的 LCL
+  |||| <- SP <- 递增 SP"
+  [func-name ^Integer numLocals]
+  (flatten [(str "(" (classFunc->func func-name) ")")
+            (mapv (fn [index] [(str "@" index) "D=A" "@LCL" "A=M" "A=D+A" "M=0"]) (range 0 numLocals))
+            [(str "@" numLocals) "D=A" "@SP" "M=D+M"]]))
 
 (defn trans-init
   "翻译初始化命令
@@ -238,9 +250,13 @@
                  :C-LABEL (trans-label (arg1 cmd))
                  :C-GOTO (trans-goto (arg1 cmd))
                  :C-IF (trans-if (arg1 cmd))
-                 :C-FUNCTION (trans-function file-name (arg1 cmd)
-                                             (Integer/parseInt (arg2 cmd)))
-                 :C-RETURN (trans-return)
+                 :C-FUNCTION (do
+                               (reset! current-func (arg1 cmd))
+                               (trans-function (arg1 cmd) (Integer/parseInt (arg2 cmd))))
+                 :C-RETURN (do
+                             (reset! current-func "")
+                             (trans-return))
+                 :C-CALL (trans-call (arg1 cmd) (Integer/parseInt (arg2 cmd)))
                  (throw (RuntimeException. (str "尚未实现此命令处理 " cmd))))]
         (into (conj agg (str "//" cmd)) res)
         agg))
@@ -259,8 +275,9 @@
                       (-> cmd (str/split #"//")
                           first (str/trim)))))) [] cmds))
 
-(comment
+(comment                                                    ;单个 .vm 程序（测试包含引导）
   (let [file "C:\\Users\\mazhangjing\\Desktop\\learn-nand\\projects\\08\\FunctionCalls\\SimpleFunction\\SimpleFunction.vm"
+        file "/Users/corkine/Desktop/nand2tetris/projects/08/FunctionCalls/SimpleFunction/SimpleFunction.vm"
         input (Paths/get file (into-array [""]))
         pure-name (-> (str (.getFileName input)) (str/split #"\.") first)
         output (.resolve (.getParent input) (str pure-name ".asm"))]
@@ -268,3 +285,21 @@
          (pure-cmds)
          (translate pure-name)
          (save-to (str output)))))
+
+(comment                                                    ;多个 .vm 程序（自行引导）
+  (let [files ["/Users/corkine/Desktop/nand2tetris/projects/08/FunctionCalls/FibonacciElement/Sys.vm"
+               "/Users/corkine/Desktop/nand2tetris/projects/08/FunctionCalls/FibonacciElement/Main.vm"]
+        dir (.getParent (Paths/get (first files) (into-array [""])))
+        output (.resolve dir
+                         (str (.getFileName dir) ".asm"))]
+    (let [_ (reset! current-func "")
+          result (reduce (fn [agg file]
+                           (let [input (Paths/get file (into-array [""]))
+                                 pure-name (-> (str (.getFileName input)) (str/split #"\.") first)]
+                             (into agg
+                                   (into [(str "//file: " (.getFileName input))]
+                                         (->> (read-vm file)
+                                              (pure-cmds)
+                                              (translate pure-name))))))
+                         (trans-init) files)]
+      (save-to (str output) result))))
