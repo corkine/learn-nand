@@ -35,3 +35,11 @@ See `projects/07`，使用 Clojure 实现的 IR 后端翻译器（部分），�
 ## Chapter08：虚拟机 IR 后端（控制和子过程切换）
 
 See `projects/08`，使用 Clojure 实现的 IR 后端翻译器（部分），代码参见 `impl/src/vm_trans.clj`。
+
+## Chapter09: 高级语言
+
+See `projects/09`，注意 VM 模拟器关闭动画提高运行速度。
+
+## Chapter10: 虚拟机 IR 前端（语法分析）
+
+See `projects/10`，使用 Clojure 实现的 IR 前端编译器（部分），代码参见 `impl/src/analyzer.clj`。
