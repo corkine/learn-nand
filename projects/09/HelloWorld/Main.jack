@@ -6,9 +6,10 @@
 /** Hello World program. */
 class Main {
    function void main() {
-      /* Prints some text using the standard library. */
-      do Output.printString("Hello world!");
-      do Output.println();      // New line
+      var String name;
+      let name = Keyboard.readLine("Input your name: ");
+      do Output.printString(name);
+      do Output.printString(", Hello!");
       return;
    }
 }

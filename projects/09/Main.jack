@@ -1,0 +1,7 @@
+class Main {
+    function void main() {
+        do Screen.setColor(true);
+        do Screen.drawRectangle(0,0,100,100);
+        return;
+    }
+}

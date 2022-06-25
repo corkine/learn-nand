@@ -4,43 +4,77 @@
 // File name: projects/09/List/List.jack
 
 /** Represents a linked list of integers. */
+// class List {
+//     field int data;          // a list consists of a data field,
+//     field List next;         // followed by a list
+
+//     /* Creates a List. */
+//     constructor List new(int car, List cdr) {
+//         let data = car;       // the identifiers car and cdr are used in 
+//         let next = cdr;       // memory of the Lisp programming language
+//         return this;
+//     }
+
+//     /** Accessors. */
+//     method int getData() { return data; }
+//     method int getNext() { return next; }
+
+//     /** Prints this list. */
+//     method void print() {
+//         var List current;    // initializes current to the first item
+//         let current = this;  // of this list
+//         while (~(current = null)) {
+//             do Output.printInt(current.getData());
+//             do Output.printChar(32); // prints a space
+//             let current = current.getNext();
+//         }
+//         return;
+//     }
+
+//     /** Disposes this List by recursively disposing its tail. */
+//     method void dispose() {
+//         if (~(next = null)) {
+//             do next.dispose();
+//         }
+//         // Uses an OS routine to recycle this object.
+//         do Memory.deAlloc(this);
+//         return;
+//     }
+
+//     // More list processing methods can come here.
+
+// }
+
 class List {
-    field int data;          // a list consists of a data field,
-    field List next;         // followed by a list
-
-    /* Creates a List. */
-    constructor List new(int car, List cdr) {
-        let data = car;       // the identifiers car and cdr are used in 
-        let next = cdr;       // memory of the Lisp programming language
-        return this;
-    }
-
-    /** Accessors. */
-    method int getData() { return data; }
-    method int getNext() { return next; }
-
-    /** Prints this list. */
-    method void print() {
-        var List current;    // initializes current to the first item
-        let current = this;  // of this list
-        while (~(current = null)) {
-            do Output.printInt(current.getData());
-            do Output.printChar(32); // prints a space
-            let current = current.getNext();
-        }
-        return;
-    }
-
-    /** Disposes this List by recursively disposing its tail. */
-    method void dispose() {
-        if (~(next = null)) {
-            do next.dispose();
-        }
-        // Uses an OS routine to recycle this object.
-        do Memory.deAlloc(this);
-        return;
-    }
-
-    // More list processing methods can come here.
-
+    //Jack 中默认所有字段都是私有的
+   field int a;
+   field List b;
+   constructor List new(int car, List cdr) {
+      let a = car;
+      let b = cdr;
+      return this;
+   }
+   method int getNum() { return a; }
+   method List getNext() { return b; }
+   method void print() {
+    //Jack 中所有的赋值都要先 var 声明，赋值必须使用 let
+      var List current;
+      let current = this;
+      //Jack 中的相等判断使用的是 =，没有运算优先级，相反判断是 ~
+      while (~(current = null)) {
+         do Output.printInt(current.getNum());
+         do Output.printChar(32);
+         let current = current.getNext();
+      }
+      //没有返回值时也必须手动 return
+      return;
+   }
+   method void dispose() {
+    //Jack 不是自带垃圾回收的语言，因此要 Memory.deAlloc 回收对象内存
+      if (~(b = null)) {
+         do b.dispose();
+      }
+      do Memory.deAlloc(this);
+      return;
+   }
 }

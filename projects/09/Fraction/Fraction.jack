@@ -4,62 +4,112 @@
 // File name: projects/09/Fraction/Fraction.jack
 
 /** Represents the Fraction type and related operations. */
-class Fraction {
-   field int numerator, denominator;  // field = property = member variable.
+// class Fraction {
+//    field int numerator, denominator;  // field = property = member variable.
   
-   /** Constructs a (reduced) fraction from the given numerator and denominator. */
-   constructor Fraction new(int x, int y) {
-      let numerator = x;
-      let denominator = y;
-      do reduce();   // reduces the fraction
-      return this;   // a constructor is expected to return a reference to the new object
-   }
+//    /** Constructs a (reduced) fraction from the given numerator and denominator. */
+//    constructor Fraction new(int x, int y) {
+//       let numerator = x;
+//       let denominator = y;
+//       do reduce();   // reduces the fraction
+//       return this;   // a constructor is expected to return a reference to the new object
+//    }
 
-   // Reduces this fraction.
-   method void reduce() {
-      var int g;
-      let g = Fraction.gcd(numerator, denominator);
-      if (g > 1) {
-         let numerator = numerator / g;
-         let denominator = denominator / g;
-      }
-      return;
-   }
+//    // Reduces this fraction.
+//    method void reduce() {
+//       var int g;
+//       let g = Fraction.gcd(numerator, denominator);
+//       if (g > 1) {
+//          let numerator = numerator / g;
+//          let denominator = denominator / g;
+//       }
+//       return;
+//    }
 
-   /** Accessors. */
-   method int getNumerator() { return numerator; }
-   method int getDenominator() { return denominator; }  
+//    /** Accessors. */
+//    method int getNumerator() { return numerator; }
+//    method int getDenominator() { return denominator; }  
 
-   /** Returns the sum of this fraction and the other one. */
-   method Fraction plus(Fraction other) {
-      var int sum;
-      let sum = (numerator * other.getDenominator()) + (other.getNumerator() * denominator);
-      return Fraction.new(sum, denominator * other.getDenominator());
-   }
+//    /** Returns the sum of this fraction and the other one. */
+//    method Fraction plus(Fraction other) {
+//       var int sum;
+//       let sum = (numerator * other.getDenominator()) + (other.getNumerator() * denominator);
+//       return Fraction.new(sum, denominator * other.getDenominator());
+//    }
 
-   // More fraction-related methods (minus, times, div, etc.) can be added here.
+//    // More fraction-related methods (minus, times, div, etc.) can be added here.
   
-   /** Disposes this fraction. */
-   method void dispose() {
-      do Memory.deAlloc(this);  // uses an OS routine to recycle the memory held by the object
-      return;
-   }
+//    /** Disposes this fraction. */
+//    method void dispose() {
+//       do Memory.deAlloc(this);  // uses an OS routine to recycle the memory held by the object
+//       return;
+//    }
    
-   /** Prints this fraction in the format x/y. */
-   method void print() {
-      do Output.printInt(numerator);
-      do Output.printString("/");
-      do Output.printInt(denominator);
-      return;
-   }
+//    /** Prints this fraction in the format x/y. */
+//    method void print() {
+//       do Output.printInt(numerator);
+//       do Output.printString("/");
+//       do Output.printInt(denominator);
+//       return;
+//    }
 
-   // Computes the greatest common divisor of the given integers.
+//    // Computes the greatest common divisor of the given integers.
+//    function int gcd(int a, int b) {
+//       var int r;
+//       while (~(b = 0)) {             // applies Euclid's algorithm
+//          let r = a - (b * (a / b));  // r = remainder of the integer division a/b
+//          let a = b; let b = r;
+//       }
+//       return a;
+//    }
+// }
+
+class Fraction {
+   field int x,y;
+   constructor Fraction new(int a, int b) {
+      let x = a;
+      let y = b;
+      do reduce();
+      return this;
+   }
    function int gcd(int a, int b) {
+      //参数可以直接当做局部变量使用
       var int r;
-      while (~(b = 0)) {             // applies Euclid's algorithm
-         let r = a - (b * (a / b));  // r = remainder of the integer division a/b
+      while (~(b = 0)) {             
+         let r = a - (b * (a / b)); 
          let a = b; let b = r;
       }
       return a;
+   }
+   method void reduce() { 
+      //函数调用必须带上类名，即便在一个类中
+      var int gcdResult;
+      let gcdResult = Fraction.gcd(x,y);
+      if (gcdResult > 1) { 
+         let x = x / gcdResult;
+         let y = y / gcdResult;
+      }
+      return;
+   }
+   method int getX() { return x; }
+   method int getY() { return y; }
+   method Fraction plus(Fraction b) {
+      //所有变量赋值使用 let，可单行声明多个变量
+      var Fraction fraction;
+      var int allX, allY;
+      let allX = x * b.getY() + y * b.getX();
+      let allY = y * b.getY();
+      let fraction = Fraction.new(allX, allY);
+      return fraction;
+   }
+   method void print() { 
+      do Output.printInt(x);
+      do Output.printString("/");
+      do Output.printInt(y);
+      return;
+   }
+   method void dispose() {
+      do Memory.deAlloc(this);
+      return;
    }
 }
