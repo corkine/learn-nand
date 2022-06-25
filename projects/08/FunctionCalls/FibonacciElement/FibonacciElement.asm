@@ -2,7 +2,7 @@
 D=A
 @SP
 M=D
-@Sys.init$return149
+@Sys.init$return163
 D=A
 @SP
 A=M
@@ -51,8 +51,8 @@ D=M
 @LCL
 M=D
 @Sys.init
-0;JEQ
-(Sys.init$return149)
+0;JMP
+(Sys.init$return163)
 //file: Sys.vm
 //function Sys.init 0
 (Sys.init)
@@ -69,7 +69,7 @@ M=D
 @SP
 M=M+1
 //call Main.fibonacci 1
-@Main.fibonacci$return150
+@Main.fibonacci$return164
 D=A
 @SP
 A=M
@@ -118,8 +118,8 @@ D=M
 @LCL
 M=D
 @Main.fibonacci
-0;JEQ
-(Main.fibonacci$return150)
+0;JMP
+(Main.fibonacci$return164)
 //label WHILE
 (Sys.init$WHILE)
 //goto WHILE
@@ -160,23 +160,23 @@ D=M
 A=A-1
 M=M-D
 D=M
-@Main.fibonacci$pass151
+@Main.fibonacci$pass165
 D;JLT
-@Main.fibonacci$notPass151
+@Main.fibonacci$notPass165
 0;JMP
-(Main.fibonacci$pass151)
+(Main.fibonacci$pass165)
 @SP
 A=M
 A=A-1
 M=-1
-@Main.fibonacci$end151
+@Main.fibonacci$end165
 0;JMP
-(Main.fibonacci$notPass151)
+(Main.fibonacci$notPass165)
 @SP
 A=M
 A=A-1
 M=0
-(Main.fibonacci$end151)
+(Main.fibonacci$end165)
 //if-goto IF_TRUE
 @SP
 M=M-1
@@ -257,7 +257,7 @@ A=M
 A=M
 0;JEQ
 //label IF_FALSE
-($IF_FALSE)
+(Main.fibonacci$IF_FALSE)
 //push argument 0
 @0
 D=A
@@ -286,7 +286,7 @@ D=M
 A=A-1
 M=M-D
 //call Main.fibonacci 1
-@Main.fibonacci$return153
+@Main.fibonacci$return167
 D=A
 @SP
 A=M
@@ -335,8 +335,8 @@ D=M
 @LCL
 M=D
 @Main.fibonacci
-0;JEQ
-(Main.fibonacci$return153)
+0;JMP
+(Main.fibonacci$return167)
 //push argument 0
 @0
 D=A
@@ -365,7 +365,7 @@ D=M
 A=A-1
 M=M-D
 //call Main.fibonacci 1
-@Main.fibonacci$return154
+@Main.fibonacci$return168
 D=A
 @SP
 A=M
@@ -414,8 +414,8 @@ D=M
 @LCL
 M=D
 @Main.fibonacci
-0;JEQ
-(Main.fibonacci$return154)
+0;JMP
+(Main.fibonacci$return168)
 //add
 @SP
 M=M-1

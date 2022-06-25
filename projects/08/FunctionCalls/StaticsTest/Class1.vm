@@ -5,10 +5,10 @@
 
 // Stores two supplied arguments in static[0] and static[1].
 function Class1.set 0
-push argument 0
-pop static 0
-push argument 1
-pop static 1
+push argument 0 //6
+pop static 0 //6
+push argument 1 //8
+pop static 1 //8
 push constant 0
 return
 

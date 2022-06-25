@@ -132,8 +132,6 @@
           ["@SP" "M=M-1" "A=M" "D=M" (str "@" file-name "." index) "M=D"]
           :else (throw (RuntimeException. "未实现此转换")))))
 
-(defn classFunc->func [cf] cf #_(second (str/split cf #"\.")))
-
 (defn trans-label
   "翻译 label 命令"
   [label] [(str "(" @current-func "$" label ")")])
@@ -161,7 +159,7 @@
   重设被调用者 LCL 为 SP
   跳转到函数入口并开始执行代码"
   [func-name ^Integer numArgs]
-  (let [point (str (classFunc->func func-name) "$return" (next-int))]
+  (let [point (str func-name "$return" (next-int))]
     (flatten
       [;将返回值保存在堆栈中，并增长堆栈
        (str "@" point) "D=A" "@SP" "A=M" "M=D" "@SP" "M=M+1"
@@ -176,12 +174,12 @@
        ;重置 LCL 的位置为当前 SP
        "@SP" "D=M" "@LCL" "M=D"
        ;跳转到函数入口
-       (str "@" (classFunc->func func-name)) "0;JEQ"
+       (str "@" func-name) "0;JMP"
        ;继续执行调用者指令的标记
        (str "(" point ")")])))
 
 (defn trans-return
-  "翻译返回命令
+  "翻译返回命令(arg 可能为空!)
   |arg0    | <- 调用者压入被调用者的参数           -> |ret value|
   |arg1    | <- 调用者压入被调用者的参数           -> |SPv HERE |
   |ret addr| <- 被调用者压入，调用者获取执行结果
@@ -193,13 +191,11 @@
   |LCL2    |
   |SPv HERE| <- 被调用者 SP 值的位置"
   []
-  (let [val (next-int)
-        tempVar (str "@R13") #_(str "@temp" val)
-        retVar (str "@R14") #_(str "@ret" val)]
+  (let [tempVar (str "@R13") retVar (str "@R14")]
     (flatten [;保存 LCL 位置到临时变量 FRAME
               "@LCL" "D=M" tempVar "M=D"
               ;获取返回后下一条指令的地址 -- FRAME - 5 偏移处的值
-              "@5" "D=A" tempVar "D=M-D" retVar "M=D"
+              "@5" "D=A" tempVar "A=M-D" "D=M" retVar "M=D"
               ;将当前函数的返回值放到 ARG 指针位置(栈顶)，以便调用者获取
               "@SP" "M=M-1" "A=M" "D=M" "@ARG" "A=M" "M=D"
               ;恢复调用者 SP = ARG + 1
@@ -211,7 +207,7 @@
               tempVar "D=M" "@4" "A=D-A" "D=M" "@LCL" "M=D"
               "// 6-- go to return address"
               ;跳转到调用者原来指令位置继续执行
-              retVar "A=M" "A=M" "0;JEQ"])))
+              retVar "A=M" "0;JEQ"])))
 
 (defn trans-function
   "翻译函数定义命令，这里的函数名包含了文件名，格式为 文件名.函数名。
@@ -227,7 +223,7 @@
   |local1  | <- 清空自己的 LCL
   |||| <- SP <- 递增 SP"
   [func-name ^Integer numLocals]
-  (flatten [(str "(" (classFunc->func func-name) ")")
+  (flatten [(str "(" func-name ")")
             (mapv (fn [index] [(str "@" index) "D=A" "@LCL" "A=M" "A=D+A" "M=0"]) (range 0 numLocals))
             [(str "@" numLocals) "D=A" "@SP" "M=D+M"]]))
 
@@ -254,7 +250,8 @@
                                (reset! current-func (arg1 cmd))
                                (trans-function (arg1 cmd) (Integer/parseInt (arg2 cmd))))
                  :C-RETURN (do
-                             (reset! current-func "")
+                             ;不是 return 就意味着函数结束
+                             #_(reset! current-func "")
                              (trans-return))
                  :C-CALL (trans-call (arg1 cmd) (Integer/parseInt (arg2 cmd)))
                  (throw (RuntimeException. (str "尚未实现此命令处理 " cmd))))]
@@ -287,8 +284,9 @@
          (save-to (str output)))))
 
 (comment                                                    ;多个 .vm 程序（自行引导）
-  (let [files ["/Users/corkine/Desktop/nand2tetris/projects/08/FunctionCalls/FibonacciElement/Sys.vm"
-               "/Users/corkine/Desktop/nand2tetris/projects/08/FunctionCalls/FibonacciElement/Main.vm"]
+  (let [files ["/Users/corkine/Desktop/nand2tetris/projects/08/FunctionCalls/StaticsTest/Sys.vm"
+               "/Users/corkine/Desktop/nand2tetris/projects/08/FunctionCalls/StaticsTest/Class1.vm"
+               "/Users/corkine/Desktop/nand2tetris/projects/08/FunctionCalls/StaticsTest/Class2.vm"]
         dir (.getParent (Paths/get (first files) (into-array [""])))
         output (.resolve dir
                          (str (.getFileName dir) ".asm"))]
@@ -302,4 +300,12 @@
                                               (pure-cmds)
                                               (translate pure-name))))))
                          (trans-init) files)]
-      (save-to (str output) result))))
+      (let [index (atom -1)]
+        (save-to (str output)
+                 (mapv (fn [line]
+                         (if (or (str/starts-with? line "//")
+                                 (str/starts-with? line "("))
+                           line
+                           (do
+                             (swap! index inc)
+                             (format "%-20s //%s" line @index)))) result))))))
