@@ -16,27 +16,39 @@
 (defn save-xml-to
   "将 Hiccup 格式 XML 数据转换并保存到文件"
   [file tags]
-  (with-open [out (FileWriter. ^String file)]
+  (with-open [out (clojure.java.io/writer file)]
     (emit (sexp-as-element tags) out)))
+
+(defonce in-multiline-comment (atom false))
 
 (defn- get-scanner
   "从文件中读入 .jack 程序，去除注释和空行，返回符号易识别的程序"
   [filename]
   (let [file-data (slurp filename)
         sc (Scanner. file-data)
-        skip-commit-fn (fn [_]
-                         (cond (or (.hasNext sc "//")
-                                   (.hasNext sc "/\\*")
-                                   (.hasNext sc "/\\*\\*"))
-                               (if (.hasNextLine sc)
-                                 (do
-                                   (.nextLine sc)
-                                   (recur nil))
-                                 nil)
-                               (.hasNext sc) (.next sc)
-                               :else nil))]
+        skip-commit-fn (fn []
+                         (cond
+                           ;单行注释
+                           (.hasNext sc "//")
+                           (do (.nextLine sc) (recur))
+                           ;多行注释开始
+                           (or (.hasNext sc "/\\*")
+                               (.hasNext sc "/\\*\\*"))
+                           (do (reset! in-multiline-comment true)
+                               (.next sc) (recur))
+                           ;处于多行注释中
+                           (and (.hasNext sc)
+                                @in-multiline-comment
+                                (not (.hasNext sc "\\*/")))
+                           (do (.next sc) (recur))
+                           ;多行注释结束
+                           (.hasNext sc "\\*/")
+                           (do (reset! in-multiline-comment false)
+                               (.next sc "\\*/") (recur))
+                           (.hasNext sc) (.next sc)
+                           :else nil))]
     (let [pure-data (->> (take-while (comp not nil?)
-                                     (iterate skip-commit-fn ""))
+                                     (repeatedly skip-commit-fn))
                          (str/join " "))
           easy-scan-data (-> pure-data
                              (str/replace "{" " { ")
@@ -136,7 +148,7 @@
                                (iterate (fn [_] (next-token sc)) ""))]
     (filterv map? token-list)))
 
-(defn- token->node [{:keys [type data]}] {(keyword type) data})
+(defn- token->node [{:keys [type data]}] [(keyword type) data])
 
 (defn- tokens->nodes [ts] (mapv token->node (filterv (comp not nil?) ts)))
 
@@ -180,19 +192,20 @@
 (defonce ts (atom '()))
 
 (defn- pop-ts [] (let [first-of-ts (first @ts)]
-                  (swap! ts next)
-                  first-of-ts))
+                   (swap! ts next)
+                   first-of-ts))
 
 (defn- peek-ts [] (first @ts))
 
-(defn- top-ts [n] (take n @ts))
+(defn- top-ts [n] (str/join " " (mapv :data (take n @ts))))
 
 (defn- push-ts [& head]
   (reset! ts (into @ts head))
   nil)
 
 (defn- push-ts-warn [& head]
-  (println (str "WARN: can't parse from " head))
+  (println (str "WARN: can't parse from: "
+                (str/join " " (mapv :data (reverse head)))))
   (reset! ts (into @ts head))
   nil)
 
@@ -201,10 +214,10 @@
   nil)
 
 (defn- type-and-contains? [type & data]
-  #(and (= :keyword type) (contains? (set data) %2)))
+  #(and (= type %1) (contains? (set data) %2)))
 
 (defn- type-and? [type data]
-  #(and (= :keyword type) (= data %2)))
+  #(and (= type %1) (= data %2)))
 
 (defn- type? [type]
   (fn [t _] (= type t)))
@@ -214,6 +227,10 @@
 (declare compileExpressionList)
 
 (declare compileStatement)
+
+(declare compileStatements)
+
+#_(do-test)
 
 (defn- compileClassVarDec
   "编译静态/字段声明，不匹配返回 nil
@@ -225,73 +242,86 @@
               (type-and-contains? :keyword "static" "field")
               [:or (type-and-contains? :keyword "int" "char" "boolean") (type? :identifier)]
               (type? :identifier))
-      (let [nextVars (take-while (fn [splitNode var2Node]
-                                   (if (check! [splitNode var2Node]
-                                               (type-and? :symbol ",")
-                                               (type? :identifier))
-                                     true
-                                     (do (push-ts var2Node splitNode) false)))
-                                 (repeatedly (fn [] [(pop-ts) (pop-ts)])))
+      (let [nextVars (doall
+                       (take-while (fn [[splitNode var2Node]]
+                                     (if (check! [splitNode var2Node]
+                                                 (type-and? :symbol ",")
+                                                 (type? :identifier))
+                                       true
+                                       (do (push-ts var2Node splitNode) false)))
+                                   (repeatedly (fn [] [(pop-ts) (pop-ts)]))))
             nextVarsNode (map second nextVars)
             endNode (pop-ts)]
         (when (check! [endNode] (type-and? :symbol ";"))
-          (-> (tokens->nodes [sfNode typeNode varNode])
-              (into (tokens->nodes nextVarsNode))
-              (conj (token->node endNode)))))
+          (into [:classVarDec]
+                (-> (tokens->nodes [sfNode typeNode varNode])
+                    (into (tokens->nodes nextVarsNode))
+                    (conj (token->node endNode))))))
       (push-ts varNode typeNode sfNode))))
 
 (defn- compileParameterList
-  "编译参数列表，可能为空，不包含 ()
+  "编译参数列表，不包含 ()。结果可能为空，空时依旧返回无子节点 Node，而非 nil。
   empty or 'int a' or 'int a, boolean b'" []
   (let [varTypeNode (pop-ts)
         varNameNode (pop-ts)]
     (if (check! [varTypeNode varNameNode]
                 [:or (type-and-contains? :keyword "int" "char" "boolean") (type? :identifier)]
                 (type? :identifier))
-      (let [nextTypeVars (take-while (fn [splitNode varType2Node varName2Node]
-                                       (if (check! [splitNode varType2Node varName2Node]
-                                                   (type-and? :symbol ",")
-                                                   [:or (type-and-contains? :keyword "int" "char" "boolean")
-                                                    (type? :identifier)]
-                                                   (type? :identifier))
-                                         true
-                                         (do (push-ts varName2Node varType2Node splitNode) false)))
-                                     (repeatedly (fn [] [(pop-ts) (pop-ts) (pop-ts)])))
-            ;may nil
-            nextTypeVarsNodes (map second nextTypeVars)]
-        (-> (tokens->nodes [varTypeNode varNameNode])
-            (into (tokens->nodes nextTypeVarsNodes)))))
-    (push-ts varNameNode varTypeNode)))
+      (let [nextTypeVars (doall
+                           (take-while (fn [[splitNode varType2Node varName2Node]]
+                                         (if (check! [splitNode varType2Node varName2Node]
+                                                     (type-and? :symbol ",")
+                                                     [:or (type-and-contains? :keyword "int" "char" "boolean")
+                                                      (type? :identifier)]
+                                                     (type? :identifier))
+                                           true
+                                           (do (push-ts varName2Node varType2Node splitNode) false)))
+                                       (repeatedly (fn [] [(pop-ts) (pop-ts) (pop-ts)]))))
+            nextTypeVarsNodesRes (reduce (fn [agg item]
+                                           (into agg (tokens->nodes item)))
+                                         [] nextTypeVars)]
+        (-> [:parameterList]
+            (into (tokens->nodes [varTypeNode varNameNode]))
+            (into nextTypeVarsNodesRes)))
+      (do (push-ts varNameNode varTypeNode)
+          [:parameterList]))))
+
+#_(do-test)
 
 (defn- compileVarDec
-  "编译 var 声明
+  "编译 var 声明，可能不存在，返回 nil
   var type varName, varName,.. ;" []
   (let [varTypeNode (pop-ts)
         typeNode (pop-ts)
         varNameNode (pop-ts)]
     (if (check! [varTypeNode typeNode varNameNode]
-                (type-and? :symbol "var")
-                [:or (type-and-contains? :keyword "int" "char" "boolean") (type? :identifier)]
+                (type-and? :keyword "var")
+                [:or (type-and-contains?
+                       :keyword "int" "char" "boolean") (type? :identifier)]
                 (type? :identifier))
-      (let [nextVars (take-while (fn [splitNode var2Node]
-                                   (if (check! [splitNode var2Node]
-                                               (type-and? :symbol ",")
-                                               (type? :identifier))
-                                     true
-                                     (do (push-ts var2Node splitNode) false)))
-                                 (repeatedly (fn [] [(pop-ts) (pop-ts)])))
+      (let [nextVars (doall (take-while (fn [[splitNode var2Node]]
+                                          (if (check! [splitNode var2Node]
+                                                      (type-and? :symbol ",")
+                                                      (type? :identifier))
+                                            true
+                                            (do (push-ts var2Node splitNode) false)))
+                                        (repeatedly (fn [] [(pop-ts) (pop-ts)]))))
             nextVarsNode (map second nextVars)              ;may nil
             endNode (pop-ts)]
-        (when (check! [endNode] (type-and? :symbol ";"))
-          (-> (tokens->nodes [varTypeNode typeNode varNameNode])
-              (into (tokens->nodes nextVarsNode))
-              (conj (token->node endNode))))
-        (push-ts-warn varNameNode typeNode varTypeNode)))))
+        (if (check! [endNode] (type-and? :symbol ";"))
+          (into [:varDec]
+                (-> (tokens->nodes [varTypeNode typeNode varNameNode])
+                    (into (tokens->nodes nextVarsNode))
+                    (conj (token->node endNode))))
+          (push-ts-warn endNode varNameNode typeNode varTypeNode)))
+      (push-ts varNameNode typeNode varTypeNode))))
+
+#_(do-test)
 
 (defn- compileDo
   "编译 do 语句
-  do subName ( expressionList )
-  do className/varName . subName ( expressionList )" []
+  do subName ( expressionList ) ;
+  do className/varName . subName ( expressionList ) ;" []
   (let [doNode (pop-ts)]
     (let [{c1Type :type :as varNameOrSubroutineName} (pop-ts)
           {c2Type :type c2Data :data} (peek-ts)]
@@ -300,35 +330,42 @@
         (cond
           (and (= :symbol c2Type)
                (= "(" c2Data))
-          ;subName ( expressionList )
+          ;subName ( expressionList ) ;
           (let [leftB (pop-ts)
                 expressionList (compileExpressionList)
-                rightB (pop-ts)]
-            (if (and (check! [leftB rightB]
+                rightB (pop-ts)
+                endNode (pop-ts)]
+            (if (and (check! [leftB rightB endNode]
                              (type-and? :symbol "(")
-                             (type-and? :symbol ")"))
+                             (type-and? :symbol ")")
+                             (type-and? :symbol ";"))
                      (not (nil? expressionList)))
-              (tokens->nodes [varNameOrSubroutineName
-                              leftB expressionList rightB])
-              (push-ts-warn rightB leftB varNameOrSubroutineName doNode)))
-          (and (= :symbol c2Type)
-               (= "." c2Data))
-          ;className/varName . subName ( expressionList )
+              (-> [:doStatement]
+                  (into (tokens->nodes [doNode varNameOrSubroutineName leftB]))
+                  (conj expressionList)
+                  (into (tokens->nodes [rightB endNode])))
+              (push-ts-warn endNode rightB leftB varNameOrSubroutineName doNode)))
+          (and (= :symbol c2Type) (= "." c2Data))
+          ;className/varName . subName ( expressionList ) ;
           (let [point (pop-ts)
                 subName (pop-ts)
                 leftB (pop-ts)
                 expressionList (compileExpressionList)
-                rightB (pop-ts)]
-            (if (and (check! [point subName leftB rightB]
+                rightB (pop-ts)
+                endNode (pop-ts)]
+            (if (and (check! [point subName leftB rightB endNode]
                              (type-and? :symbol ".")
                              (type? :identifier)
                              (type-and? :symbol "(")
-                             (type-and? :symbol ")"))
+                             (type-and? :symbol ")")
+                             (type-and? :symbol ";"))
                      (not (nil? expressionList)))
-              (tokens->nodes [varNameOrSubroutineName
-                              point subName
-                              leftB expressionList rightB])
-              (push-ts-warn rightB leftB subName point
+              (-> [:doStatement]
+                  (into (tokens->nodes [doNode varNameOrSubroutineName
+                                        point subName leftB]))
+                  (conj expressionList)
+                  (into (tokens->nodes [rightB endNode])))
+              (push-ts-warn endNode rightB leftB subName point
                             varNameOrSubroutineName doNode)))
           :else (push-ts-warn varNameOrSubroutineName doNode))))))
 
@@ -338,48 +375,52 @@
   let varName [ expression ] = expression ;" []
   (let [letNode (pop-ts)
         varNameNode (pop-ts)
-        equalOrLeftMiddleBruceNode (pop-ts)]
-    (if (check! [letNode varNameNode equalOrLeftMiddleBruceNode]
+        equalOrLeftMidBruceNode (pop-ts)]
+    (if (check! [letNode varNameNode equalOrLeftMidBruceNode]
                 (type-and? :keyword "let")
                 (type? :identifier)
                 (type-and-contains? :symbol "=" "["))
-      (if (= (:data equalOrLeftMiddleBruceNode) "=")
+      (if (= (:data equalOrLeftMidBruceNode) "=")
         ;let varName = expression ;
-        (let [expressionNode (compileExpression)
+        (let [expressionRes (compileExpression)
               endNode (pop-ts)]
-          (if (and (not (nil? expressionNode))
+          (if (and (not (nil? expressionRes))
                    (check! [endNode] (type-and? :symbol ";")))
-            (tokens->nodes [letNode varNameNode
-                            equalOrLeftMiddleBruceNode expressionNode])
+            (-> [:letStatement]
+                (into (tokens->nodes [letNode varNameNode equalOrLeftMidBruceNode]))
+                (conj expressionRes)
+                (conj (token->node endNode)))
             (push-ts-warn endNode)))
         ;let varName [ expression ] = expression ;
-        (let [expressionNode (compileExpression)
+        (let [expressionRes (compileExpression)
               rightMiddleBruceNode (pop-ts)
               equalNode (pop-ts)
-              expression2Node (compileExpression)
+              expression2Res (compileExpression)
               endNode (pop-ts)]
-          (if (and expressionNode
-                   expression2Node
+          (if (and expressionRes
+                   expression2Res
                    (check! [rightMiddleBruceNode equalNode endNode]
                            (type-and? :symbol "]")
                            (type-and? :symbol "=")
                            (type-and? :symbol ";")))
-            (tokens->nodes [letNode varNameNode
-                            equalOrLeftMiddleBruceNode
-                            expressionNode rightMiddleBruceNode
-                            equalNode expression2Node endNode])
+            (-> [:letStatement]
+                (into (tokens->nodes [letNode varNameNode equalOrLeftMidBruceNode]))
+                (conj expressionRes)
+                (into (tokens->nodes [rightMiddleBruceNode equalNode]))
+                (conj expression2Res)
+                (conj (token->node endNode)))
             (push-ts-warn endNode equalNode rightMiddleBruceNode))))
-      (push-ts-warn equalOrLeftMiddleBruceNode varNameNode letNode))))
+      (push-ts-warn equalOrLeftMidBruceNode varNameNode letNode))))
 
 (defn- compileWhile
   "编译 while 语句
   while ( expression ) { statement }" []
   (let [while (pop-ts)
         leftBruce (pop-ts)
-        expression (compileExpression)
+        expressionRes (compileExpression)
         rightBruce (pop-ts)
         leftBigBruce (pop-ts)
-        statement (compileStatement)
+        statementRes (compileStatements)
         rightBigBruce (pop-ts)]
     (if (and (check! [while leftBruce rightBruce
                       leftBigBruce rightBigBruce]
@@ -388,11 +429,14 @@
                      (type-and? :symbol ")")
                      (type-and? :symbol "{")
                      (type-and? :symbol "}"))
-             (not (nil? expression))
-             (not (nil? statement)))
-      (tokens->nodes [while leftBruce expression
-                      rightBruce leftBigBruce
-                      statement rightBigBruce])
+             (not (nil? expressionRes))
+             (not (nil? statementRes)))
+      (-> [:whileStatement]
+          (into (tokens->nodes [while leftBruce]))
+          (conj expressionRes)
+          (into (tokens->nodes [rightBruce leftBigBruce]))
+          (conj statementRes)
+          (conj (token->node rightBigBruce)))
       (push-ts-warn rightBigBruce leftBigBruce rightBruce
                     leftBruce while))))
 
@@ -406,25 +450,31 @@
       (if (and (= type :symbol) (= data ";"))
         (do
           (pop-ts)
-          (tokens->nodes [return mayEnd]))
-        (let [expression (compileExpression)
+          (into [:returnStatement]
+                (tokens->nodes [return mayEnd])))
+        (let [expressionRes (compileExpression)
               endNode (pop-ts)]
-          (if (and (not (nil? expression))
+          (if (and (not (nil? expressionRes))
                    (check! [endNode] (type-and? :symbol ";")))
-            (tokens->nodes [return expression endNode])
+            (-> [:returnStatement]
+                (conj (token->node return))
+                (conj expressionRes)
+                (conj (token->node endNode)))
             (push-ts-warn endNode return))))
       (push-ts-warn return))))
 
+#_(do-test)
+
 (defn- compileIf
   "编译 if 语句
-  if ( expression ) { statement }
-  (else { statement })?" []
+  if ( expression ) { statements }
+  (else { statements })?" []
   (let [ifNode (pop-ts)
         leftB (pop-ts)
-        expression (compileExpression)
+        expressionRes (compileExpression)
         rightB (pop-ts)
         leftBigB (pop-ts)
-        statement (compileStatement)
+        statementRes (compileStatements)
         rightBigB (pop-ts)]
     (if (and (check! [ifNode leftB rightB
                       leftBigB rightBigB]
@@ -433,28 +483,39 @@
                      (type-and? :symbol ")")
                      (type-and? :symbol "{")
                      (type-and? :symbol "}"))
-             (not (nil? expression))
-             (not (nil? statement)))
+             (not (nil? expressionRes))
+             (not (nil? statementRes)))
       (if-not (let [{:keys [data type]} (peek-ts)]
                 (and (= "else" data) (= :keyword type)))
         ;没有 else 的 if 语句
-        (tokens->nodes [ifNode leftB expression rightB
-                        leftBigB statement rightBigB])
+        (-> [:ifStatement]
+            (into (tokens->nodes [ifNode leftB]))
+            (conj expressionRes)
+            (into (tokens->nodes [rightB leftBigB]))
+            (conj statementRes)
+            (conj (token->node rightBigB)))
         (let [elseNode (pop-ts)
               leftBigB2 (pop-ts)
-              statement2 (compileStatement)
+              statement2Res (compileStatements)
               rightBigB2 (pop-ts)]
           (if (and (check! [elseNode leftBigB2 rightBigB2]
                            (type-and? :keyword "else")
                            (type-and? :symbol "{")
                            (type-and? :symbol "}"))
-                   (not (nil? statement2)))
+                   (not (nil? statement2Res)))
             ;包含 if 和 else 语句
-            (tokens->nodes [ifNode leftB expression rightB
-                            leftBigB statement rightBigB
-                            elseNode leftBigB2 statement2 rightBigB2])
+            (-> [:ifStatement]
+                (into (tokens->nodes [ifNode leftB]))
+                (conj expressionRes)
+                (into (tokens->nodes [rightB leftBigB]))
+                (conj statementRes)
+                (into (tokens->nodes [rightBigB elseNode leftBigB2]))
+                (conj statement2Res)
+                (conj (token->node rightBigB2)))
             (push-ts-warn rightBigB2 leftBigB2 elseNode))))
       (push-ts-warn rightBigB leftBigB rightB leftB ifNode))))
+
+#_(do-test)
 
 (defn- compileStatement
   "编译单条语句
@@ -462,20 +523,26 @@
   []
   (let [{:keys [type data]} (peek-ts)]
     (if-not (= :keyword type)
-      (warn (str "can't parse statement from location: " (top-ts 5)))
+      nil
       (case data
         "let" (compileLet)
         "if" (compileIf)
         "while" (compileWhile)
         "do" (compileDo)
         "return" (compileReturn)
-        (warn (str "can't parse statement from location: " (top-ts 5)))))))
+        (warn (str "can't parse statement from: " (top-ts 10)))))))
 
 (defn- compileStatements
   "编译语句，不包括 {}
   statement* 可能为空，返回 nil" []
-  (take-while (comp not nil)
-              (repeatedly compileStatement)))
+  (if-let [children (doall
+                      (take-while
+                        (comp not nil?)
+                        (repeatedly compileStatement)))]
+    (into [:statements] children)
+    [:statements]))
+
+#_(do-test)
 
 (defn- compileSubroutine
   "编译方法、函数或构造函数" []
@@ -486,21 +553,31 @@
     (if (check! [typeTypeNode returnTypeNode subroutineNameNode leftSmallBruceNode]
                 (type-and-contains? :keyword "constructor" "function" "method")
                 [:or (type-and? :keyword "void") (type? :identifier)]
+                (type? :identifier)
                 (type-and? :symbol "("))
       (let [;空 parameterList 返回 nil
-            paramListNode (compileParameterList)
+            paramListRes (compileParameterList)
             rightSmallBruceNode (pop-ts)
             ;subroutineBody { varDec* statements }
             leftBigBruceNode (pop-ts)
             ;var 声明可能为 nil
-            allVarDecNode (take-while (comp not nil?) (repeatedly compileVarDec))
-            statementsNode (compileStatements)              ;statementsNode 可能为 nil
+            allVarDecRes (doall (take-while (comp not nil?) (repeatedly compileVarDec)))
+            statementsRes (compileStatements)               ;statementsRes 可能为 nil
             rightBigBruceNode (pop-ts)]
         (if (check! [leftBigBruceNode rightBigBruceNode rightSmallBruceNode]
                     (type-and? :symbol "{") (type-and? :symbol "}") (type-and? :symbol ")"))
-          (tokens->nodes [typeTypeNode returnTypeNode subroutineNameNode
-                          leftSmallBruceNode paramListNode rightSmallBruceNode
-                          leftBigBruceNode allVarDecNode statementsNode rightBigBruceNode])
+          (let [subroutineBodyRes
+                (-> [:subroutineBody]
+                    (conj (token->node leftBigBruceNode))
+                    (into allVarDecRes)
+                    (conj statementsRes)
+                    (conj (token->node rightBigBruceNode)))]
+            (-> [:subroutineDec]
+                (into (tokens->nodes [typeTypeNode returnTypeNode
+                                      subroutineNameNode leftSmallBruceNode]))
+                (conj paramListRes)
+                (conj (token->node rightSmallBruceNode))
+                (conj subroutineBodyRes)))
           ;并非本函数 pop 的数据由其自身确保压回到 ts
           (push-ts-warn rightBigBruceNode leftBigBruceNode rightSmallBruceNode)))
       (push-ts leftSmallBruceNode subroutineNameNode returnTypeNode typeTypeNode))))
@@ -514,13 +591,18 @@
     (if (check! [classNode classNameNode leftBigBruceNode]
                 (type-and? :keyword "class") :identifier :symbol)
       (let [all-classVarDec
-            (take-while (comp not nil?) (repeatedly compileClassVarDec))
+            (doall (take-while (comp not nil?) (repeatedly compileClassVarDec)))
             all-subroutineDec
-            (take-while (comp not nil?) (repeatedly compileSubroutine))]
-        (-> (tokens->nodes [classNameNode leftBigBruceNode])
+            (doall (take-while (comp not nil?) (repeatedly compileSubroutine)))
+            rightBigBruceNode (pop-ts)]
+        (-> [:class]
+            (into (tokens->nodes [classNode classNameNode leftBigBruceNode]))
             (into all-classVarDec)
-            (into all-subroutineDec)))
+            (into all-subroutineDec)
+            (conj (token->node rightBigBruceNode))))
       (push-ts-warn leftBigBruceNode classNameNode classNode))))
+
+#_(do-test)
 
 (defn- compileTerm
   "编译 term，包括对标识符字元区分变量、数组和子程序调用
@@ -534,24 +616,27 @@
             (check! [next-check]
                     (type-and-contains? :keyword
                                         "true" "false" "null" "this")))
-      (token->node (pop-ts))
+      [:term (token->node (pop-ts))]
       ;决定是否是 ( expression ) 或 unaryOp term
       (let [{:keys [type data]} (peek-ts)]
         (cond (and (= :symbol type) (= "(" data))
               (let [leftBruce (pop-ts)
-                    expressionNode (compileExpression)
+                    expressionRes (compileExpression)
                     rightBruce (pop-ts)]
-                (if (and (not (nil? expressionNode))
+                (if (and (not (nil? expressionRes))
                          (check! [leftBruce rightBruce]
-                                 (type-and? :symbol ")")
+                                 (type-and? :symbol "(")
                                  (type-and? :symbol ")")))
-                  (tokens->nodes [leftBruce expressionNode rightBruce])
+                  (-> [:term]
+                      (conj (token->node leftBruce))
+                      (conj expressionRes)
+                      (conj (token->node rightBruce)))
                   (push-ts-warn rightBruce leftBruce)))
               (and (= :symbol type) (contains? #{"-" "~"} data))
               (let [unary (pop-ts)
-                    term (compileTerm)]
-                (if (not (nil? term))
-                  (tokens->nodes [unary term])
+                    termRes (compileTerm)]
+                (if (not (nil? termRes))
+                  (-> [:term] (conj (token->node unary)) (conj termRes))
                   (push-ts-warn unary)))
               :else
               ;区分 varName
@@ -559,92 +644,106 @@
               ;    subroutineName ( expressionList )
               ;    className/varName . subroutineName ( expressionList )
               (let [{c1Type :type :as varNameOrSubroutineName} (pop-ts)
-                    {c2Type :type c2Data :data :as varNameOrSubroutineLeftBruceOrPoint}
-                    (peek-ts)]
+                    {c2Type :type c2Data :data} (peek-ts)]
                 (if-not (= :identifier c1Type)
-                  (push-ts-warn varNameOrSubroutineName)
-                  (cond (and (= :symbol c2Type)
-                             (= "[" c2Data))
+                  ;可能是空 expressionList: let a = A.new()，此时读入的是 )
+                  (push-ts varNameOrSubroutineName)
+                  (cond (and (= :symbol c2Type) (= "[" c2Data))
                         ;varName [ expression ]
                         (let [leftBB (pop-ts)
-                              expression (compileExpression)
+                              expressionRes (compileExpression)
                               rightBB (pop-ts)]
                           (if (and (check! [leftBB rightBB]
                                            (type-and? :symbol "[")
                                            (type-and? :symbol "]"))
-                                   (not (nil? expression)))
-                            (tokens->nodes [varNameOrSubroutineName
-                                            leftBB expression rightBB])
+                                   (not (nil? expressionRes)))
+                            (-> [:term]
+                                (into (tokens->nodes [varNameOrSubroutineName leftBB]))
+                                (conj expressionRes)
+                                (conj (token->node rightBB)))
                             (push-ts-warn rightBB leftBB varNameOrSubroutineName)))
-                        (and (= :symbol c2Type)
-                             (= "(" c2Data))
+                        (and (= :symbol c2Type) (= "(" c2Data))
                         ;subName ( expressionList )
                         (let [leftB (pop-ts)
-                              expressionList (compileExpressionList)
+                              expressionListRes (compileExpressionList)
                               rightB (pop-ts)]
                           (if (and (check! [leftB rightB]
                                            (type-and? :symbol "(")
                                            (type-and? :symbol ")"))
-                                   (not (nil? expressionList)))
-                            (tokens->nodes [varNameOrSubroutineName
-                                            leftB expressionList rightB])
+                                   (not (nil? expressionListRes)))
+                            (-> [:term]
+                                (into (tokens->nodes [varNameOrSubroutineName leftB]))
+                                (conj expressionListRes)
+                                (conj (token->node rightB)))
                             (push-ts-warn rightB leftB varNameOrSubroutineName)))
-                        (and (= :symbol c2Type)
-                             (= "." c2Data))
+                        (and (= :symbol c2Type) (= "." c2Data))
                         ;className/varName . subName ( expressionList )
                         (let [point (pop-ts)
                               subName (pop-ts)
                               leftB (pop-ts)
-                              expressionList (compileExpressionList)
+                              expressionListRes (compileExpressionList)
                               rightB (pop-ts)]
                           (if (and (check! [point subName leftB rightB]
                                            (type-and? :symbol ".")
                                            (type? :identifier)
                                            (type-and? :symbol "(")
                                            (type-and? :symbol ")"))
-                                   (not (nil? expressionList)))
-                            (tokens->nodes [varNameOrSubroutineName
-                                            point subName
-                                            leftB expressionList rightB])
+                                   (not (nil? expressionListRes)))
+                            (-> [:term]
+                                (into (tokens->nodes [varNameOrSubroutineName
+                                                      point subName leftB]))
+                                (conj expressionListRes)
+                                (conj (token->node rightB)))
                             (push-ts-warn rightB leftB subName point
                                           varNameOrSubroutineName)))
                         :else                               ;varName
-                        (tokens->nodes [varNameOrSubroutineName])))))))))
+                        [:term (token->node varNameOrSubroutineName)]))))))))
+
+#_(do-test)
 
 (defn- compileExpression
   "编译表达式
   term (op term)*" []
-  (let [termNode (compileTerm)
+  (let [termRes (compileTerm)
         isOP? #(check! [%] (type-and-contains?
                              :symbol "+" "-" "*" "/" "&" "|" "<" ">" "="))]
-    (if (not (nil? termNode))
+    (if (not (nil? termRes))
       (let [rest-op-term
-            (take-while (fn [op term]
-                          (let [isOpTerm? (and (not (nil? term)) (isOP? op))]
-                            (if-not isOpTerm? (do (push-ts op) nil) true)))
-                        (repeatedly (fn [] [(pop-ts) (compileTerm)])))
+            (doall (take-while (fn [[op term]]
+                                 (if (nil? term) (do (push-ts op) nil) true))
+                               (repeatedly (fn [] (let [a (pop-ts)]
+                                                    (if (isOP? a) [a (compileTerm)] [a nil]))))))
             ;may nil
-            op-terms (reduce (fn [agg [op term]] (conj agg op term)) [] rest-op-term)]
-        (into (tokens->nodes [termNode])
-              (tokens->nodes op-terms)))
-      (warn (str "can't parse expression at " (top-ts 5))))))
+            opRes-terms (reduce (fn [agg [op term]]
+                                  (conj agg (token->node op) term))
+                                [] rest-op-term)]
+        (-> [:expression]
+            (conj termRes)
+            (into opRes-terms)))
+      nil)))
+
+#_(do-test)
 
 (defn- compileExpressionList
   "编译逗号分隔符分割的表达式列表（可空）
   expression
   expression, expression" []
-  (if-let [exp (compileExpression)]
-    (let [nextExps (take-while
-                     (fn [{:keys [type data] :as sp} expNode]
-                       (let [result (and (= :symbol type) (= "," data)
-                                         (not (nil? expNode)))]
-                         (if result true (do (push-ts-warn sp) nil))))
-                     (fn [] [(pop-ts) (compileExpression)]))
-          nextExpNodes (reduce (fn [agg [sp exp]] (conj agg sp exp))
-                               [] nextExps)]                ;may nil
-      (into (tokens->nodes [exp])
-            (tokens->nodes nextExpNodes)))
-    (warn (str "can't parse expression: " (top-ts 5)))))
+  (let [expRes (compileExpression)]
+    (if (not (nil? expRes))
+      (let [nextExps (doall
+                       (take-while
+                         (fn [[sp expResInner]]
+                           (if (not (nil? expResInner)) true (do (push-ts sp) nil)))
+                         (repeatedly (fn [] (let [{:keys [type data] :as a} (pop-ts)]
+                                              (if (and (= :symbol type) (= "," data))
+                                                [a (compileExpression)] [a nil]))))))
+            nextExpNodesRes (reduce (fn [agg [sp exp]]
+                                      (conj agg (token->node sp) exp))
+                                    [] nextExps)]           ;may nil
+        (-> [:expressionList]
+            (conj expRes)
+            (into nextExpNodesRes)))
+      [:expressionList])))
 
 (defn- do-compilation
   "执行整个翻译，class 是 Jack 基本单元，因此每个文件第一个 token 一定是 class" []
@@ -657,13 +756,15 @@
   "将终结符转换为 <keyword/symbol/integerConstant/stringConstant/identifier> 无子节点
   将非终结符转换为 <class/classVarDec/subroutineDec/parameterList/subroutineBody/
   varDec/statements/whileStatement/ifStatement/returnStatement/letStatement/
-  doStatement/expression/term/expressionList> 带子元素节点"
+  doStatement/expression/term/expressionList> 带子元素节点
+
+  注意，因为过程依赖于副作用，因此所有 lazy-seq 必须展开，即 take-while 必须 doall"
   [token-stream]
   (reset! ts (apply list token-stream))
   (do-compilation))
 
 (comment                                                    ;单个 .jack 程序
-  (let [file "../projects/10/Square/Main.jack"
+  (let [file "../projects/10/Square/Square.jack"
         input (Paths/get file (into-array [""]))
         pure-name (-> (str (.getFileName input)) (str/split #"\.") first)
         output (.resolve (.getParent input) (str pure-name ".cmp.xml"))]
@@ -671,4 +772,11 @@
          (parser)
          (save-xml-to (str output)))))
 
-;;TODO fixme 每个非终结符编译后应该形成一个外部嵌套的 XML 节点，而非只输出其子节点
+(defn do-test []
+  (let [file "../projects/10/Square/SquareGame.jack"
+        input (Paths/get file (into-array [""]))
+        pure-name (-> (str (.getFileName input)) (str/split #"\.") first)
+        output (.resolve (.getParent input) (str pure-name ".cmp.xml"))]
+    (->> (do-scan-token file)
+         (parser)
+         #_(save-xml-to (str output)))))
