@@ -1,9 +1,19 @@
 (ns analyzer
+  "Jack 语言 IR 前端编译器的语法分析实现。
+  使用 Scanner 两次分别去除注释和解析为字元，然后 parser 进行语法分析，将字元解析为 AST 树。
+  使用纯 Clojure 完成这种任务是繁琐的，这里使用 Java 的 Scanner，首先根据是否位于注释中去除
+  单行和多行注释，然后第二次按照空格读取 token，对于 i++ 这种多字元 token 就比较难以处理，这里
+  去除注释后，对于符号左右填充了空格方便 Scanner 按照字元进行解析。得到字元后，在 parser 中使用
+  一个队列来模拟输入流，对其进行条件分析，梯度下降递归，预读取只需要 peek，继续下一个读取只需要 pop，
+  失败则 push 回去。
+  这里其实比较简单的实现方式是类似于 C 的 getc，根据读取的一个或多个字符来区分是否在注释中 ——
+  跳过到结束，或者是一个字元，并根据字元来决定根据语法规则下一步读取输入流解析的函数以实现梯度下降递归。
+  ungetc 可用于预读，不合适则将其放回到缓冲区。Java 类似的实现是 PushbackInputStream 的 read,
+  unread, mark, reset 或者 BufferedInputStream 的 mark, reset。"
   (:require [clojure.data.xml :refer [emit sexp-as-element]]
             [clojure.java.io :as io]
             [clojure.string :as str])
-  (:import (java.io FileWriter)
-           (java.nio.file Paths)
+  (:import (java.nio.file Paths)
            (java.util Scanner)
            (java.util.regex Pattern)))
 
@@ -28,8 +38,7 @@
         sc (Scanner. file-data)
         skip-commit-fn (fn []
                          (cond
-                           ;单行注释
-                           (.hasNext sc "//")
+                           (or (.hasNext sc "//") (.hasNext sc "///"))
                            (do (.nextLine sc) (recur))
                            ;多行注释开始
                            (or (.hasNext sc "/\\*")
@@ -223,14 +232,9 @@
   (fn [t _] (= type t)))
 
 (declare compileExpression)
-
 (declare compileExpressionList)
-
 (declare compileStatement)
-
 (declare compileStatements)
-
-#_(do-test)
 
 (defn- compileClassVarDec
   "编译静态/字段声明，不匹配返回 nil
@@ -267,16 +271,18 @@
     (if (check! [varTypeNode varNameNode]
                 [:or (type-and-contains? :keyword "int" "char" "boolean") (type? :identifier)]
                 (type? :identifier))
-      (let [nextTypeVars (doall
-                           (take-while (fn [[splitNode varType2Node varName2Node]]
-                                         (if (check! [splitNode varType2Node varName2Node]
-                                                     (type-and? :symbol ",")
-                                                     [:or (type-and-contains? :keyword "int" "char" "boolean")
-                                                      (type? :identifier)]
-                                                     (type? :identifier))
-                                           true
-                                           (do (push-ts varName2Node varType2Node splitNode) false)))
-                                       (repeatedly (fn [] [(pop-ts) (pop-ts) (pop-ts)]))))
+      (let [nextTypeVars
+            (doall
+              (take-while (fn [[splitNode varType2Node varName2Node]]
+                            (if (check! [splitNode varType2Node varName2Node]
+                                        (type-and? :symbol ",")
+                                        [:or (type-and-contains?
+                                               :keyword "int" "char" "boolean")
+                                         (type? :identifier)]
+                                        (type? :identifier))
+                              true
+                              (do (push-ts varName2Node varType2Node splitNode) false)))
+                          (repeatedly (fn [] [(pop-ts) (pop-ts) (pop-ts)]))))
             nextTypeVarsNodesRes (reduce (fn [agg item]
                                            (into agg (tokens->nodes item)))
                                          [] nextTypeVars)]
@@ -285,8 +291,6 @@
             (into nextTypeVarsNodesRes)))
       (do (push-ts varNameNode varTypeNode)
           [:parameterList]))))
-
-#_(do-test)
 
 (defn- compileVarDec
   "编译 var 声明，可能不存在，返回 nil
@@ -315,8 +319,6 @@
                     (conj (token->node endNode))))
           (push-ts-warn endNode varNameNode typeNode varTypeNode)))
       (push-ts varNameNode typeNode varTypeNode))))
-
-#_(do-test)
 
 (defn- compileDo
   "编译 do 语句
@@ -463,8 +465,6 @@
             (push-ts-warn endNode return))))
       (push-ts-warn return))))
 
-#_(do-test)
-
 (defn- compileIf
   "编译 if 语句
   if ( expression ) { statements }
@@ -515,8 +515,6 @@
             (push-ts-warn rightBigB2 leftBigB2 elseNode))))
       (push-ts-warn rightBigB leftBigB rightB leftB ifNode))))
 
-#_(do-test)
-
 (defn- compileStatement
   "编译单条语句
   statement 包括 let/if/while/do/return Statement"
@@ -541,8 +539,6 @@
                         (repeatedly compileStatement)))]
     (into [:statements] children)
     [:statements]))
-
-#_(do-test)
 
 (defn- compileSubroutine
   "编译方法、函数或构造函数" []
@@ -601,8 +597,6 @@
             (into all-subroutineDec)
             (conj (token->node rightBigBruceNode))))
       (push-ts-warn leftBigBruceNode classNameNode classNode))))
-
-#_(do-test)
 
 (defn- compileTerm
   "编译 term，包括对标识符字元区分变量、数组和子程序调用
@@ -699,8 +693,6 @@
                         :else                               ;varName
                         [:term (token->node varNameOrSubroutineName)]))))))))
 
-#_(do-test)
-
 (defn- compileExpression
   "编译表达式
   term (op term)*" []
@@ -721,8 +713,6 @@
             (conj termRes)
             (into opRes-terms)))
       nil)))
-
-#_(do-test)
 
 (defn- compileExpressionList
   "编译逗号分隔符分割的表达式列表（可空）
@@ -763,15 +753,6 @@
   (reset! ts (apply list token-stream))
   (do-compilation))
 
-(comment                                                    ;单个 .jack 程序
-  (let [file "../projects/10/Square/Square.jack"
-        input (Paths/get file (into-array [""]))
-        pure-name (-> (str (.getFileName input)) (str/split #"\.") first)
-        output (.resolve (.getParent input) (str pure-name ".cmp.xml"))]
-    (->> (do-scan-token file)
-         (parser)
-         (save-xml-to (str output)))))
-
 (defn do-test []
   (let [file "../projects/10/Square/SquareGame.jack"
         input (Paths/get file (into-array [""]))
@@ -779,4 +760,4 @@
         output (.resolve (.getParent input) (str pure-name ".cmp.xml"))]
     (->> (do-scan-token file)
          (parser)
-         #_(save-xml-to (str output)))))
+         (save-xml-to (str output)))))
