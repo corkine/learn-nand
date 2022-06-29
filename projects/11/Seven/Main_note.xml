@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<class>
+    <keyword>class</keyword>
+    <identifier kind=":class" type="Main">Main</identifier>
+    <symbol>{</symbol>
+    <subroutineDec>
+        <keyword>function</keyword>
+        <keyword>void</keyword>
+        <!--根据此节点和 parameterList 生成 function Main.main 0-->
+        <identifier kind=":subroutine" type="void" class="Main">main</identifier>
+        <symbol>(</symbol>
+        <parameterList></parameterList>
+        <symbol>)</symbol>
+        <subroutineBody>
+            <symbol>{</symbol>
+            <statements>
+                <doStatement>
+                    <!--do 生成 call Output.printInt 1
+                    生成前解析其 expressionList 先压入堆栈
+                    结果进行处理： pop temp 0-->
+                    <keyword>do</keyword>
+                    <identifier kind=":class" is-using="true">Output</identifier>
+                    <symbol>.</symbol>
+                    <identifier kind=":subroutine" is-using="true">printInt</identifier>
+                    <symbol>(</symbol>
+                    <expressionList>
+                        <!--根据 term op term 生成 term term op 代码
+                        第一个 term 生成 push constant 1
+                        第二个 term 中包含 expression，同样的方式生成
+                        push constant 2
+                        push constant 3
+                        call Math.multiply 2
+                        op 生成 add
+                        -->
+                        <expression>
+                            <term>
+                                <integerConstant>1</integerConstant>
+                            </term>
+                            <symbol>+</symbol>
+                            <term>
+                                <symbol>(</symbol>
+                                <expression>
+                                    <term>
+                                        <integerConstant>2</integerConstant>
+                                    </term>
+                                    <symbol>*</symbol>
+                                    <term>
+                                        <integerConstant>3</integerConstant>
+                                    </term>
+                                </expression>
+                                <symbol>)</symbol>
+                            </term>
+                        </expression>
+                    </expressionList>
+                    <symbol>)</symbol>
+                    <symbol>;</symbol>
+                </doStatement>
+                <!--return; 生成 push constant 0 并 return-->
+                <returnStatement>
+                    <keyword>return</keyword>
+                    <symbol>;</symbol>
+                </returnStatement>
+            </statements>
+            <symbol>}</symbol>
+        </subroutineBody>
+    </subroutineDec>
+    <symbol>}</symbol>
+</class>

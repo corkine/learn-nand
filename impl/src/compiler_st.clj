@@ -1,4 +1,4 @@
-(ns compiler
+(ns compiler-st
   (:require [clojure.data.xml :refer [emit sexp-as-element]]
             [clojure.java.io :as io]
             [clojure.string :as str])

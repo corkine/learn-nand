@@ -43,3 +43,8 @@ See `projects/09`，注意 VM 模拟器关闭动画提高运行速度。
 ## Chapter10: 虚拟机 IR 前端（语法分析）
 
 See `projects/10`，使用 Clojure 实现的 IR 前端编译器（部分），代码参见 `impl/src/analyzer.clj`。
+
+## Chapter11: 虚拟机 IR 前端（代码生成）
+
+See `projects/11`，使用 Clojure 实现的 IR 前端编译器，代码参见 `impl/src/compiler_st.clj`（中间符号表）和 `impl/src/compiler.clj`。
+
