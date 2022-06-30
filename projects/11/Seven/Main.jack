@@ -8,6 +8,8 @@
  * at the top-left of the screen.  
  */
 class Main {
+    static int y;
+    field int x;
 
    function void main() {
       do Output.printInt(1 + (2 * 3));
