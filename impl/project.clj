@@ -5,4 +5,4 @@
             :url "https://www.eclipse.org/legal/epl-2.0/"}
   :dependencies [[org.clojure/clojure "1.11.1"]
                  [org.clojure/data.xml "0.0.8"]]
-  :repl-options {:init-ns impl.core})
+  :repl-options {:init-ns compiler})
