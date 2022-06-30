@@ -6,112 +6,16 @@
            (java.util Scanner)
            (java.util.regex Pattern)))
 
-;;;;;;;;;;;;;;;;;; save to file method ;;;;;;;;;;;;;;;;;;
-
-(defn save-to
-  "将生成的 list 数据写入到文件中"
-  [filename output]
-  (with-open [w (io/writer filename)]
-    (.write w (str/join "\n" output))))
-
-(defn save-xml-to
-  "将 Hiccup 格式 XML 数据转换并保存到文件"
-  [file tags]
-  (with-open [out (clojure.java.io/writer file)]
-    (emit (sexp-as-element tags) out)))
-
-;;;;;;;;;;;;;;;;;; program status operation ;;;;;;;;;;;;;;;;;;
+(declare set-status!)
+(declare in-status?)
+(declare unset-status!)
+(declare get-var!)
 (declare classVarTable)
-
 (declare subroutineVarTable)
-
-(defonce status (atom {;用于标记当前 Scanner 是否处于多行注释中(可能为单行,/** */)
-                       :in-multiline-comment false
-                       ;用于将当前标识符插入到对应的 hashMap 中
-                       :in-class             false
-                       :in-subroutine        false
-                       :in-statement         false
-                       :current-class-name   nil}))
-
-(defn- in-status? [key]
-  (not (nil? (get @status key))))
-
-(defn- set-status! [key]
-  (cond (= :in-class key)
-        (reset! classVarTable {})
-        (= :in-subroutine key)
-        (reset! subroutineVarTable {}))
-  (swap! status assoc key true))
-
-(defn- set-class-name [name]
-  (swap! status assoc :current-class-name name))
-
-(defn- unset-class-name []
-  (swap! status dissoc :current-class-name))
-
-(defn- current-class-name []
-  (:current-class-name @status))
-
-(defn- unset-status! [key]
-  #_(swap! status dissoc key)
-  (cond (= :in-class key)
-        (reset! classVarTable {})
-        (= :in-subroutine key)
-        (reset! subroutineVarTable {}))
-  (swap! status dissoc key))
-
-(defn- is-node-upper? [{:keys [type data]}]
-  (and (= :identifier type)
-       (if-not (str/blank? data)
-         (Character/isUpperCase ^char (.charAt data 0))
-         false)))
-
-;;;;;;;;;;;;;;;;;; varTable operation ;;;;;;;;;;;;;;;;;;
-
-(defonce classVarTable (atom {}))
-
-(defonce subroutineVarTable (atom {}))
-
-(defn- set-var!
-  "写入符号 Node 或符号字符串和其属性 properties map 信息到符号表
-  重复写入同样的符号看做增量更新"
-  [name properties]
-  (let [varTable (cond (in-status? :in-subroutine) subroutineVarTable
-                       (in-status? :in-class) classVarTable
-                       :else (throw (RuntimeException.
-                                      "set-var! 状态错误，不属于 class or subroutine")))
-        name (if (map? name) (:data name) name)             ;name 可能是 {:type :name} 格式
-        nameUppercase? (if-not (str/blank? name)
-                         (Character/isUpperCase ^char (.charAt name 0))
-                         false)
-        existedInVarTable (get @varTable name)
-        current-kind (:kind properties)
-        ;对于 #{:class :var} 类型的 identifier 进行区分，大写开头为 Class，小写为对象名
-        unknown-class-var-kind? (= #{:class :var} current-kind)
-        current-kind (if unknown-class-var-kind?
-                       (if nameUppercase? :class :var)
-                       current-kind)
-        properties (assoc properties :kind current-kind)]
-    (if (or existedInVarTable
-            (not (contains? #{:static :field :argument :var} current-kind)))
-      (swap! varTable assoc name (merge existedInVarTable properties))
-      ;对于 :kind :static/:field/:argument/:var 四种的分别计数，设置 index 为当前的 count
-      (let [index (count (filter #(= current-kind (:kind %)) (vals @varTable)))]
-        (swap! varTable assoc name (assoc properties :index index))))))
-
-(defn- get-var!
-  "获取符号 Node 或者符号字符串的符号表数据"
-  [name]
-  (let [varTable (cond (in-status? :in-subroutine) subroutineVarTable
-                       (in-status? :in-class) classVarTable
-                       :else (throw (RuntimeException. "get-var! 状态错误，不属于 class or subroutine")))]
-    (if (map? name)
-      (get @varTable (:data name) nil)
-      (get @varTable name nil))))
-
-(defn- count-class-varTable-field
-  "统计 classVarTable 的 field 类型符号个数，用于分配内存" []
-  (count (filter #(= :field (:kind %)) @classVarTable)))
+(declare compileExpression)
+(declare compileExpressionList)
+(declare compileStatement)
+(declare compileStatements)
 
 ;;;;;;;;;;;;;;;;;; token scanner and token op ;;;;;;;;;;;;;;;;;;
 
@@ -256,6 +160,12 @@
 (defn- tokens->nodes [ts]
   (mapv token->node (filterv (comp not nil?) ts)))
 
+(defn- is-token-data-upper? [{:keys [type data]}]
+  (and (= :identifier type)
+       (if-not (str/blank? data)
+         (Character/isUpperCase ^char (.charAt data 0))
+         false)))
+
 (defn- assert-first [f & ts]
   (doseq [index (range 0 (count ts))]
     (let [{:keys [type] :as check} (get f index)
@@ -293,7 +203,129 @@
                               (some #(% targetType targetData) check))))
                     (range 0 (count ts))))))
 
-;;;;;;;;;;;;;;;;;; vm-cmd and temp-cmd operation ;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;; compile data-structure ;;;;;;;;;;;;;;;;;;
+
+(defonce ts (atom '()))
+
+(defn- pop-ts [] (let [first-of-ts (first @ts)]
+                   (swap! ts next)
+                   first-of-ts))
+
+(defn- peek-ts [] (first @ts))
+
+(defn- top-ts [n] (str/join " " (mapv :data (take n @ts))))
+
+(defn- push-ts [& head]
+  (reset! ts (into @ts head))
+  nil)
+
+(defn- push-ts-warn [& head]
+  (println (str "WARN: can't parse from: "
+                (str/join " " (mapv :data (reverse head)))))
+  (reset! ts (into @ts head))
+  nil)
+
+(defn- push-ts-warn-unset [status & head]
+  (unset-status! status)
+  (apply push-ts-warn head))
+
+(defn- warn [message]
+  (println (str "WARN: " message))
+  nil)
+
+(defn- type-and-contains? [type & data]
+  #(and (= type %1) (contains? (set data) %2)))
+
+(defn- type-and? [type data]
+  #(and (= type %1) (= data %2)))
+
+(defn- type? [type]
+  (fn [t _] (= type t)))
+
+;;;;;;;;;;;;;;;;;; program status operation ;;;;;;;;;;;;;;;;;;
+(defonce status (atom {;用于标记当前 Scanner 是否处于多行注释中(可能为单行,/** */)
+                       :in-multiline-comment false
+                       ;用于将当前标识符插入到对应的 hashMap 中
+                       :in-class             false
+                       :in-subroutine        false
+                       :in-statement         false
+                       :current-class-name   nil}))
+
+(defn- in-status? [key]
+  (not (nil? (get @status key))))
+
+(defn- set-status! [key]
+  (cond (= :in-class key)
+        (reset! classVarTable {})
+        (= :in-subroutine key)
+        (reset! subroutineVarTable {}))
+  (swap! status assoc key true))
+
+(defn- set-class-name [name]
+  (swap! status assoc :current-class-name name))
+
+(defn- unset-class-name []
+  (swap! status dissoc :current-class-name))
+
+(defn- current-class-name []
+  (:current-class-name @status))
+
+(defn- unset-status! [key]
+  #_(swap! status dissoc key)
+  (cond (= :in-class key)
+        (reset! classVarTable {})
+        (= :in-subroutine key)
+        (reset! subroutineVarTable {}))
+  (swap! status dissoc key))
+
+;;;;;;;;;;;;;;;;;; varTable operation ;;;;;;;;;;;;;;;;;;
+
+(defonce classVarTable (atom {}))
+
+(defonce subroutineVarTable (atom {}))
+
+(defn- set-var!
+  "写入符号 Node 或符号字符串和其属性 properties map 信息到符号表
+  重复写入同样的符号看做增量更新"
+  [name properties]
+  (let [varTable (cond (in-status? :in-subroutine) subroutineVarTable
+                       (in-status? :in-class) classVarTable
+                       :else (throw (RuntimeException.
+                                      "set-var! 状态错误，不属于 class or subroutine")))
+        name (if (map? name) (:data name) name)             ;name 可能是 {:type :name} 格式
+        nameUppercase? (if-not (str/blank? name)
+                         (Character/isUpperCase ^char (.charAt name 0))
+                         false)
+        existedInVarTable (get @varTable name)
+        current-kind (:kind properties)
+        ;对于 #{:class :var} 类型的 identifier 进行区分，大写开头为 Class，小写为对象名
+        unknown-class-var-kind? (= #{:class :var} current-kind)
+        current-kind (if unknown-class-var-kind?
+                       (if nameUppercase? :class :var)
+                       current-kind)
+        properties (assoc properties :kind current-kind)]
+    (if (or existedInVarTable
+            (not (contains? #{:static :field :argument :var} current-kind)))
+      (swap! varTable assoc name (merge existedInVarTable properties))
+      ;对于 :kind :static/:field/:argument/:var 四种的分别计数，设置 index 为当前的 count
+      (let [index (count (filter #(= current-kind (:kind %)) (vals @varTable)))]
+        (swap! varTable assoc name (assoc properties :index index))))))
+
+(defn- get-var!
+  "获取符号 Node 或者符号字符串的符号表数据"
+  [name]
+  (let [varTable (cond (in-status? :in-subroutine) subroutineVarTable
+                       (in-status? :in-class) classVarTable
+                       :else (throw (RuntimeException. "get-var! 状态错误，不属于 class or subroutine")))]
+    (if (map? name)
+      (get @varTable (:data name) nil)
+      (get @varTable name nil))))
+
+(defn- count-class-varTable-field
+  "统计 classVarTable 的 field 类型符号个数，用于分配内存" []
+  (count (filter #(= :field (:kind %)) @classVarTable)))
+
+;;;;;;;;;;;;;;;;;; gen vm command operation ;;;;;;;;;;;;;;;;;;
 
 (defonce vm-cmds (atom []))
 
@@ -351,53 +383,7 @@
     :static "static"
     :else (do (println "WARN: can't turn identifier kind" kind "to vm keyword") nil)))
 
-;;;;;;;;;;;;;;;;;; compile data-structure ;;;;;;;;;;;;;;;;;;
-
-(defonce ts (atom '()))
-
-(defn- pop-ts [] (let [first-of-ts (first @ts)]
-                   (swap! ts next)
-                   first-of-ts))
-
-(defn- peek-ts [] (first @ts))
-
-(defn- top-ts [n] (str/join " " (mapv :data (take n @ts))))
-
-(defn- push-ts [& head]
-  (reset! ts (into @ts head))
-  nil)
-
-(defn- push-ts-warn [& head]
-  (println (str "WARN: can't parse from: "
-                (str/join " " (mapv :data (reverse head)))))
-  (reset! ts (into @ts head))
-  nil)
-
-(defn- push-ts-warn-unset [status & head]
-  (unset-status! status)
-  (apply push-ts-warn head))
-
-(defn- warn [message]
-  (println (str "WARN: " message))
-  nil)
-
-(defn- type-and-contains? [type & data]
-  #(and (= type %1) (contains? (set data) %2)))
-
-(defn- type-and? [type data]
-  #(and (= type %1) (= data %2)))
-
-(defn- type? [type]
-  (fn [t _] (= type t)))
-
-;;;;;;;;;;;;;;;;;; compile operation ;;;;;;;;;;;;;;;;;;
-(declare compileExpression)
-
-(declare compileExpressionList)
-
-(declare compileStatement)
-
-(declare compileStatements)
+;;;;;;;;;;;;;;;;;; compiler core ;;;;;;;;;;;;;;;;;;
 
 (defn- compileClassVarDec
   "编译静态/字段声明，不匹配返回 nil
@@ -562,7 +548,7 @@
                 ;生成 VM 指令，先处理 expressionList（上述编译已处理）再将其结果压入后
                 ;生成 call ClassName.subroutineName paramCount 调用
                 ;如果第一个参数是对象，则需要扩充参数列表，找到对象变量位置压入其 this 基址
-                isFirstClass? (is-node-upper? varNameOrSubroutineName)
+                isFirstClass? (is-token-data-upper? varNameOrSubroutineName)
                 isSecondMethod? (= "method" (:type (get-var! subName)))
                 {:keys [kind type index]} (get-var! varNameOrSubroutineName)
                 classNameStr (if isFirstClass? (:data varNameOrSubroutineName) type)
@@ -1072,7 +1058,7 @@
                   ;生成 ClassName.subroutineName paramCount 调用
                   ;在调用前压入 expressionList 计算结果
                   ;如果是 method，则额外扩增参数长度，并压入 this
-                  is-first-class? (is-node-upper? varNameOrSubroutineName)
+                  is-first-class? (is-token-data-upper? varNameOrSubroutineName)
                   is-second-method? (= "method" (:type (get-var! c2Data)))
                   varInfo (get-var! varNameOrSubroutineName)
                   classNameStr (if is-first-class? varNameOrSubroutineName
@@ -1174,14 +1160,14 @@
         (set-temp return [])
         return))))
 
-(defn- do-compilation
+(defn- compileStart
   "执行整个翻译，class 是 Jack 基本单元，因此每个文件第一个 token 一定是 class" []
   (let [{:keys [type data]} (peek-ts)]
     (if (and (= :keyword type) (= "class" data))
       (compileClass)
       (throw (RuntimeException. "文件的第一个字元应该是 class")))))
 
-(defn parser
+(defn do-parse-and-gen
   "将终结符转换为 <keyword/symbol/integerConstant/stringConstant/identifier> 无子节点
   将非终结符转换为 <class/classVarDec/subroutineDec/parameterList/subroutineBody/
   varDec/statements/whileStatement/ifStatement/returnStatement/letStatement/
@@ -1192,7 +1178,21 @@
   (reset! ts (apply list token-stream))
   (println "generate vm cmds: ")
   (doall (map #(println " " %) @vm-cmds))
-  (do-compilation))
+  (compileStart))
+
+;;;;;;;;;;;;;;;;;; persistent operation ;;;;;;;;;;;;;;;;;;
+
+(defn save-to
+  "将生成的 list 数据写入到文件中"
+  [filename output]
+  (with-open [w (io/writer filename)]
+    (.write w (str/join "\n" output))))
+
+(defn save-xml-to
+  "将 Hiccup 格式 XML 数据转换并保存到文件"
+  [file tags]
+  (with-open [out (clojure.java.io/writer file)]
+    (emit (sexp-as-element tags) out)))
 
 ;;;;;;;;;;;;;;;;;; test ;;;;;;;;;;;;;;;;;;
 
@@ -1205,5 +1205,5 @@
         pure-name (-> (str (.getFileName input)) (str/split #"\.") first)
         output (.resolve (.getParent input) (str pure-name ".xml"))]
     (->> (do-scan-token file)
-         (parser)
+         (do-parse-and-gen)
          (save-xml-to (str output)))))
