@@ -22,17 +22,20 @@
 (defn- get-scanner
   "从文件中读入 .jack 程序，去除注释和空行，返回符号易识别的程序"
   [filename]
+  (unset-status! :in-multiline-comment)
   (let [file-data (slurp filename)
         sc (Scanner. file-data)
         skip-commit-fn (fn []
                          (cond
                            (or (.hasNext sc "//") (.hasNext sc "///"))
-                           (do (.nextLine sc) (recur))
+                           (do (println "skip comment line: " (.nextLine sc))
+                               (recur))
                            ;多行注释开始
                            (or (.hasNext sc "/\\*")
-                               (.hasNext sc "/\\*\\*"))
+                               (.hasNext sc "/*\\*"))
                            (do (set-status! :in-multiline-comment)
-                               (.next sc) (recur))
+                               (println "reading multi comment: " (.next sc))
+                               (recur))
                            ;处于多行注释中
                            (and (.hasNext sc)
                                 (in-status? :in-multiline-comment)
@@ -41,7 +44,8 @@
                            ;多行注释结束
                            (.hasNext sc "\\*/")
                            (do (unset-status! :in-multiline-comment)
-                               (.next sc "\\*/") (recur))
+                               (println "end of multi comment: " (.next sc "\\*/"))
+                               (recur))
                            (.hasNext sc) (.next sc)
                            :else nil))]
     (let [pure-data (->> (take-while (comp not nil?)
@@ -121,7 +125,6 @@
           (.hasNext sc "\\|")
           (.hasNext sc "\\<")
           (.hasNext sc "\\>")
-          (.hasNext sc "\\=")
           (.hasNext sc "\\~"))
       {:type :symbol :data (.next sc)}
       (.hasNextInt sc)
@@ -297,7 +300,7 @@
                          (Character/isUpperCase ^char (.charAt name 0))
                          false)
         existedInVarTable (get @varTable name)
-        current-kind (:kind properties)
+        current-kind (or (:kind properties) (:kind existedInVarTable))
         ;对于 #{:class :var} 类型的 identifier 进行区分，大写开头为 Class，小写为对象名
         unknown-class-var-kind? (= #{:class :var} current-kind)
         current-kind (if unknown-class-var-kind?
@@ -335,7 +338,7 @@
   (swap! vm-cmds conj (apply format fmt)))
 
 (defn- write-formats [cmds]
-  (doseq [cmd cmds] (write-format cmd)))
+  (doseq [cmd cmds] (when cmd (write-format cmd))))
 
 (defn- count-children
   "统计 Node 二级节点标签名为特定关键字的个数，比如
@@ -381,7 +384,13 @@
     :var "local"
     :argument "argument"
     :static "static"
-    :else (do (println "WARN: can't turn identifier kind" kind "to vm keyword") nil)))
+    (do (println "WARN: can't turn identifier kind" kind "to vm keyword") nil)))
+
+(defn- cache-nested-cmds-return-ast
+  "缓存 VM 命令到 cache-cmds 中并返回 AST"
+  [cmds return]
+  (set-temp return (doall (flatten cmds)))
+  return)
 
 ;;;;;;;;;;;;;;;;;; compiler core ;;;;;;;;;;;;;;;;;;
 
@@ -493,6 +502,7 @@
   "编译 do 语句
   do subName ( expressionList ) ;
   do className/varName . subName ( expressionList ) ;
+  生成的 VM 指令保存在 temp-cmds 中。
   do 生成的 VM 指令中，expressionList 指令从 vm-temp 缓存列表中获取，
   其在编译 expressionList、expression、term 时已写入此 vm-temp 缓存
   现在读出，之后对 className.subName 执行方法调用，注意如果是方法则需要
@@ -519,11 +529,6 @@
                 paramCountStr (+ (count-children expressionList :expression)
                                  (if is-method? 1 0))
                 expCmds (pop-temp expressionList)
-                _ (when is-method? (write-format "push pointer 0"))
-                _ (write-formats expCmds)
-                _ (write-format "call %s.%s %d" classNameStr
-                                subroutineNameStr paramCountStr)
-                _ (write-format "pop temp 0")
                 rightB (pop-ts)
                 endNode (pop-ts)]
             (if (and (check! [leftB rightB endNode]
@@ -531,10 +536,15 @@
                              (type-and? :symbol ")")
                              (type-and? :symbol ";"))
                      (not (nil? expressionList)))
-              (-> [:doStatement]
-                  (into (tokens->nodes [doNode varNameOrSubroutineName leftB]))
-                  (conj expressionList)
-                  (into (tokens->nodes [rightB endNode])))
+              (cache-nested-cmds-return-ast
+                [(if is-method? ["push pointer 0"] [])
+                 expCmds
+                 (format "call %s.%s %d" classNameStr subroutineNameStr paramCountStr)
+                 "pop temp 0"]
+                (-> [:doStatement]
+                    (into (tokens->nodes [doNode varNameOrSubroutineName leftB]))
+                    (conj expressionList)
+                    (into (tokens->nodes [rightB endNode]))))
               (push-ts-warn endNode rightB leftB varNameOrSubroutineName doNode)))
           ;className/varName . funName/methodName ( expressionList ) ;
           (and (= :symbol c2Type) (= "." c2Data))
@@ -556,11 +566,6 @@
                 paramCountStr (+ (count-children expressionList :expression)
                                  (if isSecondMethod? 1 0))
                 expCmds (pop-temp expressionList)
-                _ (when-not isFirstClass? (write-format "push %s %d" (id-kind->vm-str kind) index))
-                _ (write-formats expCmds)                   ;其余参数压入堆栈（实际是表达式计算指令，计算结果会将表达式
-                ;最后结果放在堆栈顶
-                _ (write-format "call %s.%s %d" classNameStr subroutineNameStr paramCountStr)
-                _ (write-format "pop temp 0")
                 rightB (pop-ts)
                 endNode (pop-ts)]
             (if (and (check! [point subName leftB rightB endNode]
@@ -570,11 +575,18 @@
                              (type-and? :symbol ")")
                              (type-and? :symbol ";"))
                      (not (nil? expressionList)))
-              (-> [:doStatement]
-                  (into (tokens->nodes [doNode varNameOrSubroutineName
-                                        point subName leftB]))
-                  (conj expressionList)
-                  (into (tokens->nodes [rightB endNode])))
+              (cache-nested-cmds-return-ast
+                [(if isFirstClass? []
+                                   [(format "push %s %d" (id-kind->vm-str kind) index)])
+                 ;其余参数压入堆栈（实际是表达式计算指令，计算结果会将表达式最后结果放在堆栈顶
+                 expCmds
+                 (format "call %s.%s %d" classNameStr subroutineNameStr paramCountStr)
+                 "pop temp 0"]
+                (-> [:doStatement]
+                    (into (tokens->nodes [doNode varNameOrSubroutineName
+                                          point subName leftB]))
+                    (conj expressionList)
+                    (into (tokens->nodes [rightB endNode]))))
               (push-ts-warn endNode rightB leftB subName point
                             varNameOrSubroutineName doNode)))
           :else (push-ts-warn varNameOrSubroutineName doNode))))))
@@ -583,6 +595,7 @@
   "编译 let 语句
   let varName = expression ;
   let varName [ expression ] = expression ;
+  VM 指令压入 cache-cmds 中
   对于第一种情况，解析 expression 并将结果压入堆栈
   对于第二种情况，先解析索引，计算偏移然后将结果压入堆栈" []
   (let [letNode (pop-ts)
@@ -598,15 +611,15 @@
         (let [expressionRes (compileExpression)
               expCmds (pop-temp expressionRes)
               {:keys [index kind]} (get-var! varNameNode)
-              _ (write-formats expCmds)
-              _ (write-format "pop %s %d" (id-kind->vm-str kind) index)
               endNode (pop-ts)]
           (if (and (not (nil? expressionRes))
                    (check! [endNode] (type-and? :symbol ";")))
-            (-> [:letStatement]
-                (into (tokens->nodes [letNode varNameNode equalOrLeftMidBruceNode]))
-                (conj expressionRes)
-                (conj (token->node endNode)))
+            (cache-nested-cmds-return-ast
+              [expCmds (format "pop %s %d" (id-kind->vm-str kind) index)]
+              (-> [:letStatement]
+                  (into (tokens->nodes [letNode varNameNode equalOrLeftMidBruceNode]))
+                  (conj expressionRes)
+                  (conj (token->node endNode))))
             (push-ts-warn endNode)))
         ;let varName [ expression ] = expression ;
         (let [expressionRes (compileExpression)
@@ -616,10 +629,6 @@
               expression2Res (compileExpression)
               exp2Cmds (pop-temp expression2Res)
               {:keys [index kind]} (get-var! varNameNode)
-              _ (write-formats expCmds)                     ;压入索引，压入变量基址，计算得到偏移
-              _ (write-formats [(format "push %s %d" (id-kind->vm-str kind) index) "add"])
-              _ (write-formats exp2Cmds)                    ;结果保存到 temp，弹出基址更新 that，压入 temp 更新内存
-              _ (write-formats ["pop temp 0" "pop pointer 1" "push temp 0" "pop that 0"])
               endNode (pop-ts)]
           (if (and expressionRes
                    expression2Res
@@ -627,18 +636,25 @@
                            (type-and? :symbol "]")
                            (type-and? :symbol "=")
                            (type-and? :symbol ";")))
-            (-> [:letStatement]
-                (into (tokens->nodes [letNode varNameNode equalOrLeftMidBruceNode]))
-                (conj expressionRes)
-                (into (tokens->nodes [rightMiddleBruceNode equalNode]))
-                (conj expression2Res)
-                (conj (token->node endNode)))
+            (cache-nested-cmds-return-ast
+              ;压入索引，压入变量基址，计算得到偏移
+              ;结果保存到 temp，弹出基址更新 that，压入 temp 更新内存
+              [expCmds (format "push %s %d" (id-kind->vm-str kind) index)
+               "add" exp2Cmds
+               "pop temp 0" "pop pointer 1" "push temp 0" "pop that 0"]
+              (-> [:letStatement]
+                  (into (tokens->nodes [letNode varNameNode equalOrLeftMidBruceNode]))
+                  (conj expressionRes)
+                  (into (tokens->nodes [rightMiddleBruceNode equalNode]))
+                  (conj expression2Res)
+                  (conj (token->node endNode))))
             (push-ts-warn endNode equalNode rightMiddleBruceNode))))
       (push-ts-warn equalOrLeftMidBruceNode varNameNode letNode))))
 
 (defn- compileWhile
   "编译 while 语句
   while ( expression ) { statements }
+  计算结果保存在 cache-cmds 中
   生成 VM 代码：
   label l1
   ~(expression)
@@ -668,14 +684,13 @@
                      (type-and? :symbol "}"))
              (not (nil? expressionRes))
              (not (nil? statementsRes)))
-      (do
-        (write-formats (flatten
-                         [(str "label " l1Label)
-                          condCmds "neg"
-                          (str "if-goto " l2Label)
-                          statementsCmds
-                          (str "goto " l1Label)
-                          (str "label " l2Label)]))
+      (cache-nested-cmds-return-ast
+        [(str "label " l1Label)
+         condCmds "not"
+         (str "if-goto " l2Label)
+         statementsCmds
+         (str "goto " l1Label)
+         (str "label " l2Label)]
         (-> [:whileStatement]
             (into (tokens->nodes [while leftBruce]))
             (conj expressionRes)
@@ -688,28 +703,30 @@
 (defn- compileReturn
   "编译 return 语句
   return expression ;
-  return ;" []
+  return ;
+  生成的 VM 指令保存在 temp-cmds 中" []
   (let [return (pop-ts)
         {:keys [type data] :as mayEnd} (peek-ts)]
     (if (check! [return] (type-and? :keyword "return"))
       (if (and (= type :symbol) (= data ";"))
         (do
           (pop-ts)
-          ;生成 VM 指令
-          (write-formats ["push constant 0" "return"])
-          (into [:returnStatement]
-                (tokens->nodes [return mayEnd])))
+          (cache-nested-cmds-return-ast
+            ["push constant 0" "return"]                    ;生成 VM 指令
+            (into [:returnStatement]
+                  (tokens->nodes [return mayEnd]))))
         (let [expressionRes (compileExpression)
               ;生成 VM 指令，弹出表达式结果
               expressionCmd (pop-temp expressionRes)
-              _ (write-formats (flatten [expressionCmd "return"]))
               endNode (pop-ts)]
           (if (and (not (nil? expressionRes))
                    (check! [endNode] (type-and? :symbol ";")))
-            (-> [:returnStatement]
-                (conj (token->node return))
-                (conj expressionRes)
-                (conj (token->node endNode)))
+            (cache-nested-cmds-return-ast
+              [expressionCmd "return"]
+              (-> [:returnStatement]
+                  (conj (token->node return))
+                  (conj expressionRes)
+                  (conj (token->node endNode))))
             (push-ts-warn endNode return))))
       (push-ts-warn return))))
 
@@ -717,6 +734,7 @@
   "编译 if 语句
   if ( expression ) { statements }
   (else { statements })?
+  计算结果保存在 cache-cmds 中
   先计算 ~expression，压入 if-goto L1
   label L2 statements
   label L1 else statements
@@ -745,15 +763,13 @@
              (not (nil? statementRes)))
       (if-not (let [{:keys [data type]} (peek-ts)]
                 (and (= "else" data) (= :keyword type)))
-        (do                                                 ;没有 else 的 if 语句
-          (write-formats (flatten
-                           [condCmds "neg"
-                            (str "if-goto " l1Label)
-                            trueCmds
-                            (str "goto " l2Label)
-                            (str "label " l1Label)
-                            []
-                            (str "label " l2Label)]))
+        (cache-nested-cmds-return-ast                       ;没有 else 的 if 语句
+          [condCmds "neg"
+           (str "if-goto " l1Label)
+           trueCmds
+           (str "goto " l2Label)
+           (str "label " l1Label)
+           (str "label " l2Label)]
           (-> [:ifStatement]
               (into (tokens->nodes [ifNode leftB]))
               (conj expressionRes)
@@ -770,15 +786,14 @@
                            (type-and? :symbol "{")
                            (type-and? :symbol "}"))
                    (not (nil? statement2Res)))
-            (do                                             ;包含 if 和 else 语句
-              (write-formats (flatten
-                               [condCmds "neg"
-                                (str "if-goto " l1Label)
-                                trueCmds
-                                (str "goto " l2Label)
-                                (str "label " l1Label)
-                                falseCmds
-                                (str "label " l2Label)]))
+            (cache-nested-cmds-return-ast                   ;包含 if 和 else 语句
+              [condCmds "neg"
+               (str "if-goto " l1Label)
+               trueCmds
+               (str "goto " l2Label)
+               (str "label " l1Label)
+               falseCmds
+               (str "label " l2Label)]
               (-> [:ifStatement]
                   (into (tokens->nodes [ifNode leftB]))
                   (conj expressionRes)
@@ -792,7 +807,8 @@
 
 (defn- compileStatement
   "编译单条语句
-  statement 包括 let/if/while/do/return Statement"
+  statement 包括 let/if/while/do/return Statement
+  其生成的 VM 指令保存在 cache-cmd 中"
   []
   (set-status! :in-statement)
   (let [{:keys [type data]} (peek-ts)
@@ -811,12 +827,15 @@
 
 (defn- compileStatements
   "编译语句，不包括 {}
-  statement* 可能为空，返回 nil" []
+  statement* 可能为空，返回 nil
+  其生成的 VM 指令保存在 cache-cmd 中" []
   (if-let [children (doall
                       (take-while
                         (comp not nil?)
                         (repeatedly compileStatement)))]
-    (into [:statements] children)
+    (cache-nested-cmds-return-ast
+      (mapv #(get-temp %) children)
+      (into [:statements] children))
     [:statements]))
 
 (defn- compileSubroutine
@@ -866,6 +885,8 @@
                   ;var 声明可能为 nil
                   allVarDecRes (doall (take-while (comp not nil?) (repeatedly compileVarDec)))
                   statementsRes (compileStatements)         ;statementsRes 可能为 nil
+                  statementsCmds (pop-temp statementsRes)
+                  _ (write-formats statementsCmds)
                   rightBigBruceNode (pop-ts)]
               (if (check! [leftBigBruceNode rightBigBruceNode rightSmallBruceNode]
                           (type-and? :symbol "{") (type-and? :symbol "}") (type-and? :symbol ")"))
@@ -932,26 +953,29 @@
     (cond
       ;integerConstant
       (= :integerConstant type)
-      (let [return [:term (token->node (pop-ts))]]
-        (set-temp return [(format "push constant %d" data)])
-        return)
+      (cache-nested-cmds-return-ast
+        [(format "push constant %d" data)]
+        [:term (token->node (pop-ts))])
       ;stringConstant
       (= :stringConstant type)
-      (let [return [:term (token->node (pop-ts))]]
-        (set-temp return [(str "push constant " (count data))
-                          "call String.new 1"])
-        return)
+      (cache-nested-cmds-return-ast
+        [(str "push constant " (count data))
+         "call String.new 1"
+         (reduce (fn [agg char]
+                   (conj agg (format "push constant %d" (int char))
+                         "call String.appendChar 2"))
+                 [] (.toCharArray data))]
+        [:term (token->node (pop-ts))])
       ;keywordConstant
       (check!
         [next-check]
         (type-and-contains? :keyword "true" "false" "null" "this"))
-      (let [return [:term (token->node (pop-ts))]]
-        (set-temp return
-                  (case data
-                    "true" ["push constant 1" "neg"]
-                    ("false" "null") ["push constant 0"]
-                    "this" ["push pointer 0"]))
-        return)
+      (cache-nested-cmds-return-ast
+        (case data
+          "true" ["push constant 1" "neg"]
+          ("false" "null") ["push constant 0"]
+          "this" ["push pointer 0"])
+        [:term (token->node (pop-ts))])
       ;( expression )
       (and (= :symbol type) (= "(" data))
       (let [leftBruce (pop-ts)
@@ -961,13 +985,12 @@
                  (check! [leftBruce rightBruce]
                          (type-and? :symbol "(")
                          (type-and? :symbol ")")))
-          (let [return
-                (-> [:term]
-                    (conj (token->node leftBruce))
-                    (conj expressionRes)
-                    (conj (token->node rightBruce)))]
-            (set-temp return (pop-temp expressionRes))
-            return)
+          (cache-nested-cmds-return-ast
+            (pop-temp expressionRes)
+            (-> [:term]
+                (conj (token->node leftBruce))
+                (conj expressionRes)
+                (conj (token->node rightBruce))))
           (push-ts-warn rightBruce leftBruce)))
       ;unaryOp term
       (and (= :symbol type) (contains? #{"-" "~"} data))
@@ -1006,13 +1029,12 @@
                                (type-and? :symbol "[")
                                (type-and? :symbol "]"))
                        (not (nil? expressionRes)))
-                (let [return
-                      (-> [:term]
-                          (into (tokens->nodes [varNameOrSubroutineName leftBB]))
-                          (conj expressionRes)
-                          (conj (token->node rightBB)))]
-                  (set-temp return finalCmds)
-                  return)
+                (cache-nested-cmds-return-ast
+                  finalCmds
+                  (-> [:term]
+                      (into (tokens->nodes [varNameOrSubroutineName leftBB]))
+                      (conj expressionRes)
+                      (conj (token->node rightBB))))
                 (push-ts-warn rightBB leftBB varNameOrSubroutineName)))
             (and (= :symbol c2Type) (= "(" c2Data))
             ;func/methodName ( expressionList )
@@ -1026,7 +1048,7 @@
                   is-method? (= "method" (:type (get-var! varNameOrSubroutineName)))
                   classNameStr (current-class-name)
                   subroutineNameStr (:data varNameOrSubroutineName)
-                  paramCount (+ (count (count-children expressionListRes :expression))
+                  paramCount (+ (count-children expressionListRes :expression)
                                 (if is-method? 1 0))
                   final-cmds (flatten
                                [(if is-method? ["pop pointer 0"] [])
@@ -1038,13 +1060,12 @@
                                (type-and? :symbol "(")
                                (type-and? :symbol ")"))
                        (not (nil? expressionListRes)))
-                (let [return
-                      (-> [:term]
-                          (into (tokens->nodes [varNameOrSubroutineName leftB]))
-                          (conj expressionListRes)
-                          (conj (token->node rightB)))]
-                  (set-temp return final-cmds)
-                  return)
+                (cache-nested-cmds-return-ast
+                  final-cmds
+                  (-> [:term]
+                      (into (tokens->nodes [varNameOrSubroutineName leftB]))
+                      (conj expressionListRes)
+                      (conj (token->node rightB))))
                 (push-ts-warn rightB leftB varNameOrSubroutineName)))
             ;className/varName . funcName/methodName ( expressionList )
             (and (= :symbol c2Type) (= "." c2Data))
@@ -1055,20 +1076,21 @@
                                                        :is-using true})
                   _ (set-var! subName {:kind :subroutine :is-using true})
                   expressionListRes (compileExpressionList)
+                  expressionCmds (pop-temp expressionListRes)
                   ;生成 ClassName.subroutineName paramCount 调用
                   ;在调用前压入 expressionList 计算结果
                   ;如果是 method，则额外扩增参数长度，并压入 this
                   is-first-class? (is-token-data-upper? varNameOrSubroutineName)
-                  is-second-method? (= "method" (:type (get-var! c2Data)))
+                  is-second-method? (= "method" (:type (get-var! subName)))
                   varInfo (get-var! varNameOrSubroutineName)
-                  classNameStr (if is-first-class? varNameOrSubroutineName
+                  classNameStr (if is-first-class? (:data varNameOrSubroutineName)
                                                    (:type varInfo))
-                  subroutineNameStr c2Data
-                  paramCount (+ (count (count-children expressionListRes :expression))
+                  subroutineNameStr (:data subName)
+                  paramCount (+ (count-children expressionListRes :expression)
                                 (if is-second-method? 1 0))
                   final-cmds (flatten
                                [(if is-second-method? ["pop pointer 0"] [])
-                                (pop-temp expressionListRes)
+                                expressionCmds
                                 (format "call %s.%s %d"
                                         classNameStr subroutineNameStr paramCount)])
                   rightB (pop-ts)]
@@ -1078,14 +1100,13 @@
                                (type-and? :symbol "(")
                                (type-and? :symbol ")"))
                        (not (nil? expressionListRes)))
-                (let [return
-                      (-> [:term]
-                          (into (tokens->nodes [varNameOrSubroutineName
-                                                point subName leftB]))
-                          (conj expressionListRes)
-                          (conj (token->node rightB)))]
-                  (set-temp return final-cmds)
-                  return)
+                (cache-nested-cmds-return-ast
+                  final-cmds
+                  (-> [:term]
+                      (into (tokens->nodes [varNameOrSubroutineName
+                                            point subName leftB]))
+                      (conj expressionListRes)
+                      (conj (token->node rightB))))
                 (push-ts-warn rightB leftB subName point
                               varNameOrSubroutineName)))
             :else                                           ;varName
@@ -1156,9 +1177,7 @@
                        (into nextExpNodesRes))]             ;may nil
         (set-temp return (flatten [expCmds restExpCmds]))
         return)
-      (let [return [:expressionList]]
-        (set-temp return [])
-        return))))
+      (cache-nested-cmds-return-ast [] [:expressionList]))))
 
 (defn- compileStart
   "执行整个翻译，class 是 Jack 基本单元，因此每个文件第一个 token 一定是 class" []
@@ -1198,12 +1217,11 @@
 
 ;.\tools\JackCompiler.bat .\projects\11\Seven
 (defn do-test []
-  (let [
+  (let [file "../projects/11/Seven/Main.jack"
         file "../projects/11/Average/Main.jack"
-        file "../projects/11/Seven/Main.jack"
         input (Paths/get file (into-array [""]))
         pure-name (-> (str (.getFileName input)) (str/split #"\.") first)
         output (.resolve (.getParent input) (str pure-name ".xml"))]
     (->> (do-scan-token file)
          (do-parse-and-gen)
-         (save-xml-to (str output)))))
+         #_(save-xml-to (str output)))))
