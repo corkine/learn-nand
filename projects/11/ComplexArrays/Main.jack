@@ -45,6 +45,8 @@ class Main {
             let c[1] = 77;
             let b = a[3];
             let b[1] = b[1] + c[1];  // b[1] = 33 + 77 = 110;
+        } else {
+            let c = a[4];
         }
 
         do Output.printString("Test 4: expected result: 77; actual result: ");
