@@ -48,3 +48,6 @@ See `projects/10`，使用 Clojure 实现的 IR 前端编译器（部分），�
 
 See `projects/11`，使用 Clojure 实现的 IR 前端编译器，代码参见 `impl/src/compiler_st.clj`（中间符号表）和 `impl/src/compiler.clj`。
 
+## Chapter12: 操作系统
+
+See `projects/12`，在每个 XXXTest 文件夹下的 XXX.jack 为目标库，需要通过 `./tools/JackCompiler.bat ./projects/12/XXXTest` 编译后，打开 `./tools/VMEmulator.bat` 将文件夹整体加载到 VM 仿真器并运行测试。

@@ -20,7 +20,7 @@
 (defonce debug (atom false))
 
 (defn- log [& objs]
-  (if @debug (apply println objs)))
+  (when @debug (apply println objs)))
 
 ;;;;;;;;;;;;;;;;;; token scanner and token op ;;;;;;;;;;;;;;;;;;
 
@@ -30,29 +30,30 @@
   (unset-status! :in-multiline-comment)
   (let [file-data (slurp filename)
         sc (Scanner. file-data)
-        skip-commit-fn (fn []
-                         (cond
-                           (or (.hasNext sc "//") (.hasNext sc "///"))
-                           (do (log "skip comment line: " (.nextLine sc))
-                               (recur))
-                           ;多行注释开始
-                           (or (.hasNext sc "/\\*")
-                               (.hasNext sc "/\\*\\*"))
-                           (do (set-status! :in-multiline-comment)
-                               (log "reading multi comment: " (.next sc))
-                               (recur))
-                           ;处于多行注释中
-                           (and (.hasNext sc)
-                                (in-status? :in-multiline-comment)
-                                (not (.hasNext sc "\\*/")))
-                           (do (.next sc) (recur))
-                           ;多行注释结束
-                           (.hasNext sc "\\*/")
-                           (do (unset-status! :in-multiline-comment)
-                               (log "end of multi comment: " (.next sc "\\*/"))
-                               (recur))
-                           (.hasNext sc) (.next sc)
-                           :else nil))]
+        skip-commit-fn
+        (fn []
+          (cond
+            (or (.hasNext sc "//") (.hasNext sc "///"))
+            (do (log "skip comment line: " (.nextLine sc))
+                (recur))
+            ;多行注释开始
+            (or (.hasNext sc "/\\*")
+                (.hasNext sc "/\\*\\*"))
+            (do (set-status! :in-multiline-comment)
+                (log "reading multi comment: " (.next sc))
+                (recur))
+            ;处于多行注释中
+            (and (.hasNext sc)
+                 (in-status? :in-multiline-comment)
+                 (not (.hasNext sc "\\*/")))
+            (do (.next sc) (recur))
+            ;多行注释结束
+            (.hasNext sc "\\*/")
+            (do (unset-status! :in-multiline-comment)
+                (log "end of multi comment: " (.next sc "\\*/"))
+                (recur))
+            (.hasNext sc) (.next sc)
+            :else nil))]
     (let [pure-data (->> (take-while (comp not nil?)
                                      (repeatedly skip-commit-fn))
                          (str/join " "))
@@ -137,28 +138,29 @@
       (.hasNext sc id-pattern)
       {:type :identifier :data (.next sc id-pattern)}
       (.hasNext sc str-start-pattern)
-      {:type :stringConstant :data (-> (.findInLine sc (Pattern/compile "\".*?\""))
-                                       (str/replace "\"" "")
-                                       (str/replace " { " "{")
-                                       (str/replace " } " "}")
-                                       (str/replace " [ " "[")
-                                       (str/replace " ) " ")")
-                                       (str/replace " ( " "(")
-                                       (str/replace " ] " "]")
-                                       (str/replace " . " ".")
-                                       (str/replace " , " ",")
-                                       (str/replace " ; " ";")
-                                       (str/replace " + " "+")
-                                       (str/replace " = " "=")
-                                       (str/replace " * " "*")
-                                       (str/replace " / " "/")
-                                       (str/replace " & " "&")
-                                       (str/replace " | " "|")
-                                       (str/replace " < " "<")
-                                       (str/replace " > " ">")
-                                       (str/replace " = " "=")
-                                       (str/replace " ~ " "~")
-                                       (str/replace " - " "-"))}
+      {:type :stringConstant :data
+       (-> (.findInLine sc (Pattern/compile "\".*?\""))
+           (str/replace "\"" "")
+           (str/replace " { " "{")
+           (str/replace " } " "}")
+           (str/replace " [ " "[")
+           (str/replace " ) " ")")
+           (str/replace " ( " "(")
+           (str/replace " ] " "]")
+           (str/replace " . " ".")
+           (str/replace " , " ",")
+           (str/replace " ; " ";")
+           (str/replace " + " "+")
+           (str/replace " = " "=")
+           (str/replace " * " "*")
+           (str/replace " / " "/")
+           (str/replace " & " "&")
+           (str/replace " | " "|")
+           (str/replace " < " "<")
+           (str/replace " > " ">")
+           (str/replace " = " "=")
+           (str/replace " ~ " "~")
+           (str/replace " - " "-"))}
       :else
       (do
         (if (.hasNext sc)
@@ -199,26 +201,32 @@
                         [:or (fn [t d] (= t :s2)) (fn [t d] (= t :s))] :b)"
   [f & ts]
   (= (count ts)
-     (count (filter (fn [index]
-                      (let [{targetType :type targetData :data :as target}
-                            (get f index)
-                            check (get (vec ts) index)]
-                        (cond (keyword? check)              ;只检查一种类型, eg. :keyword
-                              (= check targetType)
-                              (and (set? check)             ;只检查多种类型, eg. #{:keyword :identifier}
-                                   (empty? (filter (comp not keyword?) check)))
-                              (contains? check targetType)
-                              (fn? check)                   ;自定义检查, eg. (fn [type data] true)
-                              (check targetType targetData)
-                              (and (vector? check)          ;自定义多个检查, eg. [:and (fn [type data] true)]
-                                   (= :and (first check))
-                                   (empty? (filter (comp not fn?) (next check))))
-                              (not-any? #(not (% targetType targetData)) check)
-                              (and (vector? check)          ;自定义多个检查, eg. [:or (fn [type data] true)]
-                                   (= :or (first check))
-                                   (empty? (filter (comp not fn?) (next check))))
-                              (some #(% targetType targetData) check))))
-                    (range 0 (count ts))))))
+     (count (filter
+              (fn [index]
+                (let [{targetType :type targetData :data :as target}
+                      (get f index)
+                      check (get (vec ts) index)]
+                  ;只检查一种类型, eg. :keyword
+                  (cond (keyword? check)
+                        (= check targetType)
+                        ;只检查多种类型, eg. #{:keyword :identifier}
+                        (and (set? check)
+                             (empty? (filter (comp not keyword?) check)))
+                        (contains? check targetType)
+                        ;自定义检查, eg. (fn [type data] true)
+                        (fn? check)
+                        (check targetType targetData)
+                        ;自定义多个检查, eg. [:and (fn [type data] true)]
+                        (and (vector? check)
+                             (= :and (first check))
+                             (empty? (filter (comp not fn?) (next check))))
+                        (not-any? #(not (% targetType targetData)) check)
+                        ;自定义多个检查, eg. [:or (fn [type data] true)]
+                        (and (vector? check)
+                             (= :or (first check))
+                             (empty? (filter (comp not fn?) (next check))))
+                        (some #(% targetType targetData) check))))
+              (range 0 (count ts))))))
 
 ;;;;;;;;;;;;;;;;;; compile data-structure ;;;;;;;;;;;;;;;;;;
 
@@ -307,7 +315,7 @@
                       (cond (in-status? :in-subroutine) subroutineVarTable
                             (in-status? :in-class) classVarTable
                             :else (throw (RuntimeException.
-                                           "set-var! 状态错误，不属于 class or subroutine"))))
+                                           "set-var! not belong class or subroutine"))))
          name (if (map? name) (:data name) name)
          existedInVarTable (get @varTable name)
          current-kind (or (:kind properties) (:kind existedInVarTable))]
@@ -435,7 +443,8 @@
     (if
       (check-tokens [sfNode typeNode varNode]
                     (type-and-contains? :keyword "static" "field")
-                    [:or (type-and-contains? :keyword "int" "char" "boolean") (type? :identifier)]
+                    [:or (type-and-contains? :keyword "int" "char" "boolean")
+                     (type? :identifier)]
                     (type? :identifier))
       (let [nextVars (doall
                        (take-while (fn [[splitNode var2Node]]
@@ -448,16 +457,17 @@
             nextVarsNode (map second nextVars)
             endNode (pop-ts!)]
         (when (check-tokens [endNode] (type-and? :symbol ";"))
-          (do
-            (set-var! varNode {:kind (keyword (:data sfNode)) :type (:data typeNode)}
-                      classVarTable)
-            (doseq [name nextVarsNode]
-              (set-var! name {:kind (keyword (:data sfNode)) :type (:data typeNode)}
-                        classVarTable))
-            (into [:classVarDec]
-                  (-> (tokens->nodes [sfNode typeNode varNode])
-                      (into (tokens->nodes nextVarsNode))
-                      (conj (token->node endNode)))))))
+          (set-var! varNode {:kind (keyword (:data sfNode))
+                             :type (:data typeNode)}
+                    classVarTable)
+          (doseq [name nextVarsNode]
+            (set-var! name {:kind (keyword (:data sfNode))
+                            :type (:data typeNode)}
+                      classVarTable))
+          (into [:classVarDec]
+                (-> (tokens->nodes [sfNode typeNode varNode])
+                    (into (tokens->nodes nextVarsNode))
+                    (conj (token->node endNode))))))
       (push-ts! varNode typeNode sfNode))))
 
 (defn- compileParameterList!
@@ -466,27 +476,30 @@
   (let [varTypeNode (pop-ts!)
         varNameNode (pop-ts!)]
     (if (check-tokens [varTypeNode varNameNode]
-                      [:or (type-and-contains? :keyword "int" "char" "boolean") (type? :identifier)]
+                      [:or (type-and-contains? :keyword "int" "char" "boolean")
+                       (type? :identifier)]
                       (type? :identifier))
       (let [nextTypeVars
             (doall
-              (take-while (fn [[splitNode varType2Node varName2Node]]
-                            (if (check-tokens [splitNode varType2Node varName2Node]
-                                              (type-and? :symbol ",")
-                                              [:or (type-and-contains?
-                                                     :keyword "int" "char" "boolean")
-                                               (type? :identifier)]
-                                              (type? :identifier))
-                              true
-                              (do (push-ts! varName2Node varType2Node splitNode) false)))
-                          (repeatedly (fn [] [(pop-ts!) (pop-ts!) (pop-ts!)]))))
+              take-while
+              ((fn [[splitNode varType2Node varName2Node]]
+                 (if (check-tokens [splitNode varType2Node varName2Node]
+                                   (type-and? :symbol ",")
+                                   [:or (type-and-contains?
+                                          :keyword "int" "char" "boolean")
+                                    (type? :identifier)]
+                                   (type? :identifier))
+                   true
+                   (do (push-ts! varName2Node varType2Node splitNode) false)))
+               (repeatedly (fn [] [(pop-ts!) (pop-ts!) (pop-ts!)]))))
             nextTypeVarsNodesRes (reduce (fn [agg item]
                                            (into agg (tokens->nodes item)))
                                          [] nextTypeVars)]
         (set-var! varNameNode {:kind :argument :type (:data varTypeNode)}
                   subroutineVarTable)
         (doseq [[_ type name] nextTypeVars]
-          (set-var! name {:kind :argument :type (:data type)} subroutineVarTable))
+          (set-var! name {:kind :argument :type (:data type)}
+                    subroutineVarTable))
         (-> [:parameterList]
             (into (tokens->nodes [varTypeNode varNameNode]))
             (into nextTypeVarsNodesRes)))
@@ -504,17 +517,19 @@
                       [:or (type-and-contains?
                              :keyword "int" "char" "boolean") (type? :identifier)]
                       (type? :identifier))
-      (let [nextVars (doall (take-while (fn [[splitNode var2Node]]
-                                          (if (check-tokens [splitNode var2Node]
-                                                            (type-and? :symbol ",")
-                                                            (type? :identifier))
-                                            true
-                                            (do (push-ts! var2Node splitNode) false)))
-                                        (repeatedly (fn [] [(pop-ts!) (pop-ts!)]))))
+      (let [nextVars (doall (take-while
+                              (fn [[splitNode var2Node]]
+                                (if (check-tokens [splitNode var2Node]
+                                                  (type-and? :symbol ",")
+                                                  (type? :identifier))
+                                  true
+                                  (do (push-ts! var2Node splitNode) false)))
+                              (repeatedly (fn [] [(pop-ts!) (pop-ts!)]))))
             nextVarsNode (map second nextVars)              ;may nil
             endNode (pop-ts!)]
         (if (check-tokens [endNode] (type-and? :symbol ";"))
-          (do                                               ;更新符号表：标记某类已使用、某变量已定义，type 为其类型
+          ;更新符号表：标记某类已使用、某变量已定义，type 为其类型
+          (do
             (when (= :identifier (:type typeNode))
               (set-var! typeNode {:kind :class :type (:data typeNode)} classVarTable))
             (set-var! varNameNode {:kind       :var
@@ -540,96 +555,97 @@
   其在编译 expressionList、expression、term 时已写入此 vm-temp 缓存
   现在读出，之后对 className.subName 执行方法调用，注意如果是方法则需要
   额外压入 this 并增加参数计数。" []
-  (let [doNode (pop-ts!)]
-    (let [{c1Type :type :as varNameOrSubroutineName} (pop-ts!)
-          {c2Type :type c2Data :data} (peek-ts)]
-      (if-not (= :identifier c1Type)
-        (push-ts-warn! varNameOrSubroutineName doNode)
-        (cond
-          (and (= :symbol c2Type)
-               (= "(" c2Data))
-          ;func/methodName ( expressionList ) ;
-          (let [;更新子程序名：func/methodName
-                _ (set-var! varNameOrSubroutineName {:kind :subroutine :is-using true}
-                            classVarTable)
-                leftB (pop-ts!)
-                expressionList (compileExpressionList!)
-                ;生成 VM 指令，先处理 expressionList（上述编译已处理）再将其结果压入后
-                ;生成 call ClassName.functionB paramCount 调用
-                ;注意如果是方法，要额外压入 this，扩充参数列表
-                classNameStr (current-class-name)
-                subroutineNameStr (:data varNameOrSubroutineName)
-                ;这里一定是方法，因为哪怕是自己类的函数也需要 ClassName.subroutineName 调用
-                ;is-method? (= "method" (:type (or (get-var! subroutineNameStr)
-                ;{:type "method"})))
-                is-method? true
-                paramCountStr (+ (count-children expressionList :expression)
-                                 (if is-method? 1 0))
-                expCmds (pop-temp! expressionList)
-                rightB (pop-ts!)
-                endNode (pop-ts!)]
-            (if (and (check-tokens [leftB rightB endNode]
-                                   (type-and? :symbol "(")
-                                   (type-and? :symbol ")")
-                                   (type-and? :symbol ";"))
-                     (not (nil? expressionList)))
-              (cache-nested-cmds-return-ast!
-                [(if is-method? ["push pointer 0"] [])
-                 expCmds
-                 (format "call %s.%s %d" classNameStr subroutineNameStr paramCountStr)
-                 "pop temp 0"]
-                (-> [:doStatement]
-                    (into (tokens->nodes [doNode varNameOrSubroutineName leftB]))
-                    (conj expressionList)
-                    (into (tokens->nodes [rightB endNode]))))
-              (push-ts-warn! endNode rightB leftB varNameOrSubroutineName doNode)))
-          ;className/varName . funName/methodName ( expressionList ) ;
-          (and (= :symbol c2Type) (= "." c2Data))
-          (let [point (pop-ts!)
-                subName (pop-ts!)
-                leftB (pop-ts!)
-                ;更新子程序或变量名和其方法名：ClassA.methodA & objectA.methodA
-                _ (set-var-careful! varNameOrSubroutineName {:is-using true})
-                _ (set-var! subName {:kind :subroutine :is-using true} classVarTable)
-                expressionList (compileExpressionList!)
-                ;生成 VM 指令，先处理 expressionList（上述编译已处理）再将其结果压入后
-                ;生成 call ClassName.subroutineName paramCount 调用
-                ;如果第一个参数是对象，则需要扩充参数列表，找到对象变量位置压入其 this 基址
-                isFirstClass? (token-data-upper? varNameOrSubroutineName)
-                ;第一个参数是对象，则一定第二个是方法，反之一定是函数
-                ;isSecondMethod? (= "method" (:type (get-var! subName)))
-                isSecondMethod? (not isFirstClass?)
-                {:keys [kind type index]} (get-var varNameOrSubroutineName)
-                classNameStr (if isFirstClass? (:data varNameOrSubroutineName) type)
-                subroutineNameStr (:data subName)
-                paramCountStr (+ (count-children expressionList :expression)
-                                 (if isSecondMethod? 1 0))
-                expCmds (pop-temp! expressionList)
-                rightB (pop-ts!)
-                endNode (pop-ts!)]
-            (if (and (check-tokens [point subName leftB rightB endNode]
-                                   (type-and? :symbol ".")
-                                   (type? :identifier)
-                                   (type-and? :symbol "(")
-                                   (type-and? :symbol ")")
-                                   (type-and? :symbol ";"))
-                     (not (nil? expressionList)))
-              (cache-nested-cmds-return-ast!
-                ;如果是方法调用，找到对象的引用，对象可能是局部变量或参数（子程序符号表）或类实例（类符号表）
-                [(if isFirstClass? []
-                                   [(format "push %s %d" (id-kind->vm-str kind) index)])
-                 ;其余参数压入堆栈（实际是表达式计算指令，计算结果会将表达式最后结果放在堆栈顶
-                 expCmds
-                 (format "call %s.%s %d" classNameStr subroutineNameStr paramCountStr)
-                 "pop temp 0"]
-                (-> [:doStatement]
-                    (into (tokens->nodes [doNode varNameOrSubroutineName
-                                          point subName leftB]))
-                    (conj expressionList)
-                    (into (tokens->nodes [rightB endNode]))))
-              (push-ts-warn! endNode rightB leftB subName point
-                             varNameOrSubroutineName doNode)))
-          :else (push-ts-warn! varNameOrSubroutineName doNode))))))
+  (let [doNode (pop-ts!)
+        {c1Type :type :as varNameOrSubroutineName} (pop-ts!)
+        {c2Type :type c2Data :data} (peek-ts)]
+    (if-not (= :identifier c1Type)
+      (push-ts-warn! varNameOrSubroutineName doNode)
+      (cond
+        (and (= :symbol c2Type)
+             (= "(" c2Data))
+        ;func/methodName ( expressionList ) ;
+        (let [;更新子程序名：func/methodName
+              _ (set-var! varNameOrSubroutineName
+                          {:kind :subroutine :is-using true}
+                          classVarTable)
+              leftB (pop-ts!)
+              expressionList (compileExpressionList!)
+              ;生成 VM 指令，先处理 expressionList（上述编译已处理）再将其结果压入后
+              ;生成 call ClassName.functionB paramCount 调用
+              ;注意如果是方法，要额外压入 this，扩充参数列表
+              classNameStr (current-class-name)
+              subroutineNameStr (:data varNameOrSubroutineName)
+              ;这里一定是方法，因为哪怕是自己类的函数也需要 ClassName.subroutineName 调用
+              ;is-method? (= "method" (:type (or (get-var! subroutineNameStr)
+              ;{:type "method"})))
+              is-method? true
+              paramCountStr (+ (count-children expressionList :expression)
+                               (if is-method? 1 0))
+              expCmds (pop-temp! expressionList)
+              rightB (pop-ts!)
+              endNode (pop-ts!)]
+          (if (and (check-tokens [leftB rightB endNode]
+                                 (type-and? :symbol "(")
+                                 (type-and? :symbol ")")
+                                 (type-and? :symbol ";"))
+                   (not (nil? expressionList)))
+            (cache-nested-cmds-return-ast!
+              [(if is-method? ["push pointer 0"] [])
+               expCmds
+               (format "call %s.%s %d" classNameStr subroutineNameStr paramCountStr)
+               "pop temp 0"]
+              (-> [:doStatement]
+                  (into (tokens->nodes [doNode varNameOrSubroutineName leftB]))
+                  (conj expressionList)
+                  (into (tokens->nodes [rightB endNode]))))
+            (push-ts-warn! endNode rightB leftB varNameOrSubroutineName doNode)))
+        ;className/varName . funName/methodName ( expressionList ) ;
+        (and (= :symbol c2Type) (= "." c2Data))
+        (let [point (pop-ts!)
+              subName (pop-ts!)
+              leftB (pop-ts!)
+              ;更新子程序或变量名和其方法名：ClassA.methodA & objectA.methodA
+              _ (set-var-careful! varNameOrSubroutineName {:is-using true})
+              _ (set-var! subName {:kind :subroutine :is-using true} classVarTable)
+              expressionList (compileExpressionList!)
+              ;生成 VM 指令，先处理 expressionList（上述编译已处理）再将其结果压入后
+              ;生成 call ClassName.subroutineName paramCount 调用
+              ;如果第一个参数是对象，则需要扩充参数列表，找到对象变量位置压入其 this 基址
+              isFirstClass? (token-data-upper? varNameOrSubroutineName)
+              ;第一个参数是对象，则一定第二个是方法，反之一定是函数
+              ;isSecondMethod? (= "method" (:type (get-var! subName)))
+              isSecondMethod? (not isFirstClass?)
+              {:keys [kind type index]} (get-var varNameOrSubroutineName)
+              classNameStr (if isFirstClass? (:data varNameOrSubroutineName) type)
+              subroutineNameStr (:data subName)
+              paramCountStr (+ (count-children expressionList :expression)
+                               (if isSecondMethod? 1 0))
+              expCmds (pop-temp! expressionList)
+              rightB (pop-ts!)
+              endNode (pop-ts!)]
+          (if (and (check-tokens [point subName leftB rightB endNode]
+                                 (type-and? :symbol ".")
+                                 (type? :identifier)
+                                 (type-and? :symbol "(")
+                                 (type-and? :symbol ")")
+                                 (type-and? :symbol ";"))
+                   (not (nil? expressionList)))
+            (cache-nested-cmds-return-ast!
+              ;如果是方法调用，找到对象的引用，对象可能是局部变量或参数（子程序符号表）或类实例（类符号表）
+              [(if isFirstClass? []
+                                 [(format "push %s %d" (id-kind->vm-str kind) index)])
+               ;其余参数压入堆栈（实际是表达式计算指令，计算结果会将表达式最后结果放在堆栈顶
+               expCmds
+               (format "call %s.%s %d" classNameStr subroutineNameStr paramCountStr)
+               "pop temp 0"]
+              (-> [:doStatement]
+                  (into (tokens->nodes [doNode varNameOrSubroutineName
+                                        point subName leftB]))
+                  (conj expressionList)
+                  (into (tokens->nodes [rightB endNode]))))
+            (push-ts-warn! endNode rightB leftB subName point
+                           varNameOrSubroutineName doNode)))
+        :else (push-ts-warn! varNameOrSubroutineName doNode)))))
 
 (defn- compileLet!
   "编译 let 语句
@@ -892,68 +908,75 @@
   (let [typeTypeNode (pop-ts!)
         returnTypeNode (pop-ts!)
         subroutineNameNode (pop-ts!)
-        leftSmallBruceNode (pop-ts!)]
-    (let [return
-          (if (check-tokens [typeTypeNode returnTypeNode subroutineNameNode leftSmallBruceNode]
-                            (type-and-contains? :keyword "constructor" "function" "method")
-                            [:or (type-and? :keyword "void") (type? :identifier)]
-                            (type? :identifier)
-                            (type-and? :symbol "("))
-            (let [is-constructor? (= (:data typeTypeNode) "constructor")
-                  is-method? (= (:data typeTypeNode) "method")
-                  _ (set-var! subroutineNameNode            ;更新子程序符号表，类型 type 为 f/c/m
-                              {:kind :subroutine :type (:data typeTypeNode)}
-                              classVarTable)
-                  _ (when is-method?
-                      (set-var! "this" {:kind :argument :type (current-class-name)}
-                                subroutineVarTable))
-                  ;空 parameterList 返回 nil
-                  paramListRes (compileParameterList!)
-                  ;写入指令 function ClassN.methodN 3
-                  ;等待 statements 扫描结束后统计局部变量个数
-                  funcNameCmd (format "function %s.%s %s"
-                                      (current-class-name) (:data subroutineNameNode) "%d")
-                  ;分配对象内存并正确指向 this
-                  initThisCmds (cond is-constructor?
-                                     [(format "push constant %d"
-                                              (count-class-varTable-field))
-                                      "call Memory.alloc 1"
-                                      "pop pointer 0"]
-                                     is-method?
-                                     ["push argument 0" "pop pointer 0"]
-                                     :else [])
-                  rightSmallBruceNode (pop-ts!)
-                  ;subroutineBody { varDec* statements }
-                  leftBigBruceNode (pop-ts!)
-                  ;var 声明可能为 nil
-                  allVarDecRes (doall (take-while (comp not nil?) (repeatedly compileVarDec!)))
-                  statementsRes (compileStatements!)        ;statementsRes 可能为 nil
-                  statementsCmds (pop-temp! statementsRes)
-                  rightBigBruceNode (pop-ts!)
-                  ;写入命令到 vm-cmds
-                  _ (write-formats! (flatten [(format funcNameCmd
-                                                      (count-subroutine-varTable-var))
-                                              initThisCmds
-                                              statementsCmds]))]
-              (if (check-tokens [leftBigBruceNode rightBigBruceNode rightSmallBruceNode]
-                                (type-and? :symbol "{") (type-and? :symbol "}") (type-and? :symbol ")"))
-                (let [subroutineBodyRes
-                      (-> [:subroutineBody]
-                          (conj (token->node leftBigBruceNode))
-                          (into allVarDecRes)
-                          (conj statementsRes)
-                          (conj (token->node rightBigBruceNode)))]
-                  (-> [:subroutineDec]
-                      (into (tokens->nodes [typeTypeNode returnTypeNode
-                                            subroutineNameNode leftSmallBruceNode]))
-                      (conj paramListRes)
-                      (conj (token->node rightSmallBruceNode))
-                      (conj subroutineBodyRes)))
-                ;并非本函数 pop 的数据由其自身确保压回到 ts
-                (push-ts-warn! rightBigBruceNode leftBigBruceNode rightSmallBruceNode)))
-            (push-ts! leftSmallBruceNode subroutineNameNode returnTypeNode typeTypeNode))]
-      (unset-status! :in-subroutine)
-      return)))
+        leftSmallBruceNode (pop-ts!)
+        return
+        (if (check-tokens [typeTypeNode returnTypeNode
+                           subroutineNameNode leftSmallBruceNode]
+                          (type-and-contains? :keyword "constructor" "function" "method")
+                          [:or (type-and? :keyword "void") (type? :identifier)]
+                          (type? :identifier)
+                          (type-and? :symbol "("))
+          (let [is-constructor? (= (:data typeTypeNode) "constructor")
+                is-method? (= (:data typeTypeNode) "method")
+                ;更新子程序符号表，类型 type 为 f/c/m
+                _ (set-var! subroutineNameNode
+                            {:kind :subroutine
+                             :type (:data typeTypeNode)}
+                            classVarTable)
+                _ (when is-method?
+                    (set-var! "this" {:kind :argument
+                                      :type (current-class-name)}
+                              subroutineVarTable))
+                ;空 parameterList 返回 nil
+                paramListRes (compileParameterList!)
+                ;写入指令 function ClassN.methodN 3
+                ;等待 statements 扫描结束后统计局部变量个数
+                funcNameCmd (format "function %s.%s %s"
+                                    (current-class-name) (:data subroutineNameNode) "%d")
+                ;分配对象内存并正确指向 this
+                initThisCmds (cond is-constructor?
+                                   [(format "push constant %d"
+                                            (count-class-varTable-field))
+                                    "call Memory.alloc 1"
+                                    "pop pointer 0"]
+                                   is-method?
+                                   ["push argument 0" "pop pointer 0"]
+                                   :else [])
+                rightSmallBruceNode (pop-ts!)
+                ;subroutineBody { varDec* statements }
+                leftBigBruceNode (pop-ts!)
+                ;var 声明可能为 nil
+                allVarDecRes (doall (take-while (comp not nil?)
+                                                (repeatedly compileVarDec!)))
+                statementsRes (compileStatements!)          ;statementsRes 可能为 nil
+                statementsCmds (pop-temp! statementsRes)
+                rightBigBruceNode (pop-ts!)
+                ;写入命令到 vm-cmds
+                _ (write-formats!
+                    (flatten [(format funcNameCmd (count-subroutine-varTable-var))
+                              initThisCmds
+                              statementsCmds]))]
+            (if (check-tokens [leftBigBruceNode rightBigBruceNode
+                               rightSmallBruceNode]
+                              (type-and? :symbol "{") (type-and? :symbol "}")
+                              (type-and? :symbol ")"))
+              (let [subroutineBodyRes
+                    (-> [:subroutineBody]
+                        (conj (token->node leftBigBruceNode))
+                        (into allVarDecRes)
+                        (conj statementsRes)
+                        (conj (token->node rightBigBruceNode)))]
+                (-> [:subroutineDec]
+                    (into (tokens->nodes [typeTypeNode returnTypeNode
+                                          subroutineNameNode leftSmallBruceNode]))
+                    (conj paramListRes)
+                    (conj (token->node rightSmallBruceNode))
+                    (conj subroutineBodyRes)))
+              ;并非本函数 pop 的数据由其自身确保压回到 ts
+              (push-ts-warn! rightBigBruceNode leftBigBruceNode rightSmallBruceNode)))
+          (push-ts! leftSmallBruceNode subroutineNameNode returnTypeNode typeTypeNode))]
+    (unset-status! :in-subroutine)
+    return))
 
 (defn- compileClass!
   "编译整个类，如果不是类结构，返回 nil
@@ -963,29 +986,31 @@
   (reset! temp-cmds {})
   (let [classNode (pop-ts!)
         classNameNode (pop-ts!)
-        leftBigBruceNode (pop-ts!)]
-    (let [return
-          (if (check-tokens [classNode classNameNode leftBigBruceNode]
-                            (type-and? :keyword "class") :identifier :symbol)
-            (let [_ (do                                     ;更新当前 className 标记，添加 className 符号
-                      (set-var! classNameNode {:kind :class
-                                               :type (:data classNameNode)}
-                                classVarTable)
-                      (set-class-name! (:data classNameNode)))
-                  all-classVarDec
-                  (doall (take-while (comp not nil?) (repeatedly compileClassVarDec!)))
-                  all-subroutineDec
-                  (doall (take-while (comp not nil?) (repeatedly compileSubroutine!)))
-                  rightBigBruceNode (pop-ts!)]
-              (-> [:class]
-                  (into (tokens->nodes [classNode classNameNode leftBigBruceNode]))
-                  (into all-classVarDec)
-                  (into all-subroutineDec)
-                  (conj (token->node rightBigBruceNode))))
-            (push-ts-warn! leftBigBruceNode classNameNode classNode))]
-      (unset-class-name!)                                   ;取消当前 className 标记
-      (unset-status! :in-class)                             ;退出在 class 中的状态
-      return)))
+        leftBigBruceNode (pop-ts!)
+        return
+        (if (check-tokens [classNode classNameNode leftBigBruceNode]
+                          (type-and? :keyword "class")
+                          :identifier :symbol)
+          ;更新当前 className 标记，添加 className 符号
+          (let [_ (do
+                    (set-var! classNameNode {:kind :class
+                                             :type (:data classNameNode)}
+                              classVarTable)
+                    (set-class-name! (:data classNameNode)))
+                all-classVarDec (doall (take-while (comp not nil?)
+                                                   (repeatedly compileClassVarDec!)))
+                all-subroutineDec (doall (take-while (comp not nil?)
+                                                     (repeatedly compileSubroutine!)))
+                rightBigBruceNode (pop-ts!)]
+            (-> [:class]
+                (into (tokens->nodes [classNode classNameNode leftBigBruceNode]))
+                (into all-classVarDec)
+                (into all-subroutineDec)
+                (conj (token->node rightBigBruceNode))))
+          (push-ts-warn! leftBigBruceNode classNameNode classNode))]
+    (unset-class-name!)                                     ;取消当前 className 标记
+    (unset-status! :in-class)                               ;退出在 class 中的状态
+    return))
 
 (defn- compileTerm!
   "编译 term，包括对标识符字元区分变量、数组和子程序调用
@@ -1070,7 +1095,8 @@
                   expCmds (pop-temp! expressionRes)
                   {:keys [kind index]} (get-var varNameOrSubroutineName)
                   finalCmds (flatten [expCmds
-                                      (format "push %s %d" (id-kind->vm-str kind) index)
+                                      (format "push %s %d"
+                                              (id-kind->vm-str kind) index)
                                       "add"
                                       "pop pointer 1"
                                       "push that 0"])
@@ -1145,7 +1171,9 @@
                                   [])
                                 expressionCmds
                                 (format "call %s.%s %d"
-                                        classNameStr subroutineNameStr paramCount)])
+                                        classNameStr
+                                        subroutineNameStr
+                                        paramCount)])
                   rightB (pop-ts!)]
               (if (and (check-tokens [point subName leftB rightB]
                                      (type-and? :symbol ".")
@@ -1166,7 +1194,8 @@
             (let [return [:term (token->node varNameOrSubroutineName)]
                   {:keys [kind index]} (get-var varNameOrSubroutineName)]
               (set-var-careful! varNameOrSubroutineName {:is-using true})
-              (set-temp! return [(format "push %s %d" (id-kind->vm-str kind) index)])
+              (set-temp! return [(format "push %s %d"
+                                         (id-kind->vm-str kind) index)])
               return)))))))
 
 (defn- compileExpression!
@@ -1219,7 +1248,8 @@
             nextExps (doall
                        (take-while
                          (fn [[sp expResInner]]
-                           (if (not (nil? expResInner)) true (do (push-ts! sp) nil)))
+                           (if (not (nil? expResInner))
+                             true (do (push-ts! sp) nil)))
                          (repeatedly nextExpFunc)))
             nextExpNodesRes (reduce (fn [agg [sp exp]]
                                       (conj agg (token->node sp) exp))
@@ -1323,6 +1353,18 @@
                (save-vm-cmds! (str output-vm))
                (save-xml-to! (str output-ast))))))))
 
+;2022-6-27
+;实现了 IR 前端词法和语法分析部分，生成 AST
+;2022-6-28
+;实现了 IR 前端语法分析部分的 Debug 和测试程序测试
+;2022-6-29
+;实现了符号表生成、Debug 和其测试程序测试
+;2022-6-30
+;实现了简单程序和部分类型语句的 IR 前端代码生成(Square)
+;2022-7-1 上午
+;实现字符串字面量翻译，解决写入符号表时 kind 丢失问题，
+;statements/statement：let√,if√,while√,do√,return√ 缓存结果而不直接写入命令，
+;以解决 while 和 if 非线性写入命令的问题。
 ;2022-7-1 下午
 ;修复了错误打印上一次 vm-cmds 的问题
 ;修复了函数标示没有显示局部变量正确个数的问题
@@ -1334,7 +1376,7 @@
 ;修复了 doStatement 中压入类变量对象调用方法时的错误：翻译的指令是 pointer/local 而非 this
 ;修复了 unary term 未翻译的问题
 ;修复了子程序没有将 this 添加到 subroutineVarTable 导致顺序出错的问题
-;WIP 基于 hash 的 cache-cmds 容易导致错误，比如参数列表两个相同的字面量 0，hash 一致
+;发现了基于 hash 的 cache-cmds 容易导致错误，比如参数列表两个相同的字面量 0，hash 一致
 ;修复了 letStatement 中 field 变量被错误更新为 var 类型的问题
 ;修复了 letStatement 中 expression - term 压入类变量对象调用方法时的错误
 ;2022-7-4 上午
