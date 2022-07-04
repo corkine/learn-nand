@@ -105,9 +105,9 @@ push local 1
 lt
 pop this 7
 push this 7
-if-goto Ball_IF_TRUE_6b7c497e
-goto Ball_IF_FALSE_6b7c497e
-label Ball_IF_TRUE_6b7c497e
+if-goto Ball_IF_TRUE_7a1b3c3e
+goto Ball_IF_FALSE_7a1b3c3e
+label Ball_IF_TRUE_7a1b3c3e
 push local 0
 pop local 2
 push local 1
@@ -122,8 +122,8 @@ push this 0
 push argument 1
 lt
 pop this 9
-goto Ball_IF_END_6b7c497e
-label Ball_IF_FALSE_6b7c497e
+goto Ball_IF_END_7a1b3c3e
+label Ball_IF_FALSE_7a1b3c3e
 push this 0
 push argument 1
 lt
@@ -132,7 +132,7 @@ push this 1
 push argument 2
 lt
 pop this 9
-label Ball_IF_END_6b7c497e
+label Ball_IF_END_7a1b3c3e
 push constant 2
 push local 1
 call Math.multiply 2
@@ -160,142 +160,142 @@ pop temp 0
 push this 4
 push constant 0
 lt
-if-goto Ball_IF_TRUE_6fde64bc
-goto Ball_IF_FALSE_6fde64bc
-label Ball_IF_TRUE_6fde64bc
+if-goto Ball_IF_TRUE_e894a580
+goto Ball_IF_FALSE_e894a580
+label Ball_IF_TRUE_e894a580
 push this 4
 push this 5
 add
 pop this 4
-goto Ball_IF_END_6fde64bc
-label Ball_IF_FALSE_6fde64bc
+goto Ball_IF_END_e894a580
+label Ball_IF_FALSE_e894a580
 push this 4
 push this 6
 add
 pop this 4
 push this 9
-if-goto Ball_IF_TRUE_1735d4cf
-goto Ball_IF_FALSE_1735d4cf
-label Ball_IF_TRUE_1735d4cf
+if-goto Ball_IF_TRUE_8993d087
+goto Ball_IF_FALSE_8993d087
+label Ball_IF_TRUE_8993d087
 push this 7
-if-goto Ball_IF_TRUE_c69b38f3
-goto Ball_IF_FALSE_c69b38f3
-label Ball_IF_TRUE_c69b38f3
+if-goto Ball_IF_TRUE_086b6a61
+goto Ball_IF_FALSE_086b6a61
+label Ball_IF_TRUE_086b6a61
 push this 0
 push constant 4
 add
 pop this 0
-goto Ball_IF_END_c69b38f3
-label Ball_IF_FALSE_c69b38f3
+goto Ball_IF_END_086b6a61
+label Ball_IF_FALSE_086b6a61
 push this 1
 push constant 4
 add
 pop this 1
-label Ball_IF_END_c69b38f3
-goto Ball_IF_END_1735d4cf
-label Ball_IF_FALSE_1735d4cf
+label Ball_IF_END_086b6a61
+goto Ball_IF_END_8993d087
+label Ball_IF_FALSE_8993d087
 push this 7
-if-goto Ball_IF_TRUE_ab49310f
-goto Ball_IF_FALSE_ab49310f
-label Ball_IF_TRUE_ab49310f
+if-goto Ball_IF_TRUE_12a1b1a0
+goto Ball_IF_FALSE_12a1b1a0
+label Ball_IF_TRUE_12a1b1a0
 push this 0
 push constant 4
 sub
 pop this 0
-goto Ball_IF_END_ab49310f
-label Ball_IF_FALSE_ab49310f
+goto Ball_IF_END_12a1b1a0
+label Ball_IF_FALSE_12a1b1a0
 push this 1
 push constant 4
 sub
 pop this 1
-label Ball_IF_END_ab49310f
-label Ball_IF_END_1735d4cf
-label Ball_IF_END_6fde64bc
+label Ball_IF_END_12a1b1a0
+label Ball_IF_END_8993d087
+label Ball_IF_END_e894a580
 push this 8
-if-goto Ball_IF_TRUE_c80a6ee3
-goto Ball_IF_FALSE_c80a6ee3
-label Ball_IF_TRUE_c80a6ee3
+if-goto Ball_IF_TRUE_1315f957
+goto Ball_IF_FALSE_1315f957
+label Ball_IF_TRUE_1315f957
 push this 7
-if-goto Ball_IF_TRUE_9acfb103
-goto Ball_IF_FALSE_9acfb103
-label Ball_IF_TRUE_9acfb103
+if-goto Ball_IF_TRUE_67ddb043
+goto Ball_IF_FALSE_67ddb043
+label Ball_IF_TRUE_67ddb043
 push this 1
 push constant 4
 add
 pop this 1
-goto Ball_IF_END_9acfb103
-label Ball_IF_FALSE_9acfb103
+goto Ball_IF_END_67ddb043
+label Ball_IF_FALSE_67ddb043
 push this 0
 push constant 4
 add
 pop this 0
-label Ball_IF_END_9acfb103
-goto Ball_IF_END_c80a6ee3
-label Ball_IF_FALSE_c80a6ee3
+label Ball_IF_END_67ddb043
+goto Ball_IF_END_1315f957
+label Ball_IF_FALSE_1315f957
 push this 7
-if-goto Ball_IF_TRUE_8c7f3c3f
-goto Ball_IF_FALSE_8c7f3c3f
-label Ball_IF_TRUE_8c7f3c3f
+if-goto Ball_IF_TRUE_b630904d
+goto Ball_IF_FALSE_b630904d
+label Ball_IF_TRUE_b630904d
 push this 1
 push constant 4
 sub
 pop this 1
-goto Ball_IF_END_8c7f3c3f
-label Ball_IF_FALSE_8c7f3c3f
+goto Ball_IF_END_b630904d
+label Ball_IF_FALSE_b630904d
 push this 0
 push constant 4
 sub
 pop this 0
-label Ball_IF_END_8c7f3c3f
-label Ball_IF_END_c80a6ee3
+label Ball_IF_END_b630904d
+label Ball_IF_END_1315f957
 push this 0
 push this 10
 gt
 not
-if-goto Ball_IF_TRUE_f58edd3c
-goto Ball_IF_FALSE_f58edd3c
-label Ball_IF_TRUE_f58edd3c
+if-goto Ball_IF_TRUE_88d692a6
+goto Ball_IF_FALSE_88d692a6
+label Ball_IF_TRUE_88d692a6
 push constant 1
 pop this 14
 push this 10
 pop this 0
-label Ball_IF_FALSE_f58edd3c
+label Ball_IF_FALSE_88d692a6
 push this 0
 push this 11
 lt
 not
-if-goto Ball_IF_TRUE_aed7be6a
-goto Ball_IF_FALSE_aed7be6a
-label Ball_IF_TRUE_aed7be6a
+if-goto Ball_IF_TRUE_4d17156c
+goto Ball_IF_FALSE_4d17156c
+label Ball_IF_TRUE_4d17156c
 push constant 2
 pop this 14
 push this 11
 pop this 0
-label Ball_IF_FALSE_aed7be6a
+label Ball_IF_FALSE_4d17156c
 push this 1
 push this 12
 gt
 not
-if-goto Ball_IF_TRUE_d2fffd93
-goto Ball_IF_FALSE_d2fffd93
-label Ball_IF_TRUE_d2fffd93
+if-goto Ball_IF_TRUE_f4964733
+goto Ball_IF_FALSE_f4964733
+label Ball_IF_TRUE_f4964733
 push constant 3
 pop this 14
 push this 12
 pop this 1
-label Ball_IF_FALSE_d2fffd93
+label Ball_IF_FALSE_f4964733
 push this 1
 push this 13
 lt
 not
-if-goto Ball_IF_TRUE_efa9a1cc
-goto Ball_IF_FALSE_efa9a1cc
-label Ball_IF_TRUE_efa9a1cc
+if-goto Ball_IF_TRUE_5aa6db90
+goto Ball_IF_FALSE_5aa6db90
+label Ball_IF_TRUE_5aa6db90
 push constant 4
 pop this 14
 push this 13
 pop this 1
-label Ball_IF_FALSE_efa9a1cc
+label Ball_IF_FALSE_5aa6db90
 push pointer 0
 call Ball.show 1
 pop temp 0
@@ -315,13 +315,13 @@ pop local 3
 push argument 1
 push constant 0
 eq
-if-goto Ball_IF_TRUE_8706ace1
-goto Ball_IF_FALSE_8706ace1
-label Ball_IF_TRUE_8706ace1
+if-goto Ball_IF_TRUE_7db508f0
+goto Ball_IF_FALSE_7db508f0
+label Ball_IF_TRUE_7db508f0
 push constant 10
 pop local 4
-goto Ball_IF_END_8706ace1
-label Ball_IF_FALSE_8706ace1
+goto Ball_IF_END_7db508f0
+label Ball_IF_FALSE_7db508f0
 push this 2
 push constant 0
 lt
@@ -339,23 +339,23 @@ neg
 eq
 and
 or
-if-goto Ball_IF_TRUE_b2cb7d36
-goto Ball_IF_FALSE_b2cb7d36
-label Ball_IF_TRUE_b2cb7d36
+if-goto Ball_IF_TRUE_6dbbaab2
+goto Ball_IF_FALSE_6dbbaab2
+label Ball_IF_TRUE_6dbbaab2
 push constant 20
 pop local 4
-goto Ball_IF_END_b2cb7d36
-label Ball_IF_FALSE_b2cb7d36
+goto Ball_IF_END_6dbbaab2
+label Ball_IF_FALSE_6dbbaab2
 push constant 5
 pop local 4
-label Ball_IF_END_b2cb7d36
-label Ball_IF_END_8706ace1
+label Ball_IF_END_6dbbaab2
+label Ball_IF_END_7db508f0
 push this 14
 push constant 1
 eq
-if-goto Ball_IF_TRUE_c794c916
-goto Ball_IF_FALSE_c794c916
-label Ball_IF_TRUE_c794c916
+if-goto Ball_IF_TRUE_56cfd141
+goto Ball_IF_FALSE_56cfd141
+label Ball_IF_TRUE_56cfd141
 push constant 506
 pop local 0
 push local 3
@@ -371,14 +371,14 @@ push local 4
 call Math.multiply 2
 add
 pop local 1
-goto Ball_IF_END_c794c916
-label Ball_IF_FALSE_c794c916
+goto Ball_IF_END_56cfd141
+label Ball_IF_FALSE_56cfd141
 push this 14
 push constant 2
 eq
-if-goto Ball_IF_TRUE_88b2165e
-goto Ball_IF_FALSE_88b2165e
-label Ball_IF_TRUE_88b2165e
+if-goto Ball_IF_TRUE_bdce9ff9
+goto Ball_IF_FALSE_bdce9ff9
+label Ball_IF_TRUE_bdce9ff9
 push constant 0
 pop local 0
 push local 3
@@ -393,14 +393,14 @@ push local 4
 call Math.multiply 2
 add
 pop local 1
-goto Ball_IF_END_88b2165e
-label Ball_IF_FALSE_88b2165e
+goto Ball_IF_END_bdce9ff9
+label Ball_IF_FALSE_bdce9ff9
 push this 14
 push constant 3
 eq
-if-goto Ball_IF_TRUE_f4939a52
-goto Ball_IF_FALSE_f4939a52
-label Ball_IF_TRUE_f4939a52
+if-goto Ball_IF_TRUE_56cd87f3
+goto Ball_IF_FALSE_56cd87f3
+label Ball_IF_TRUE_56cd87f3
 push constant 250
 pop local 1
 push local 2
@@ -416,8 +416,8 @@ push local 4
 call Math.multiply 2
 add
 pop local 0
-goto Ball_IF_END_f4939a52
-label Ball_IF_FALSE_f4939a52
+goto Ball_IF_END_56cd87f3
+label Ball_IF_FALSE_56cd87f3
 push constant 0
 pop local 1
 push local 2
@@ -432,9 +432,9 @@ push local 4
 call Math.multiply 2
 add
 pop local 0
-label Ball_IF_END_f4939a52
-label Ball_IF_END_88b2165e
-label Ball_IF_END_c794c916
+label Ball_IF_END_56cd87f3
+label Ball_IF_END_bdce9ff9
+label Ball_IF_END_56cfd141
 push pointer 0
 push local 0
 push local 1

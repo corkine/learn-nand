@@ -101,9 +101,9 @@ pop pointer 0
 push this 4
 push constant 1
 eq
-if-goto Bat_IF_TRUE_b88b0bf1
-goto Bat_IF_FALSE_b88b0bf1
-label Bat_IF_TRUE_b88b0bf1
+if-goto Bat_IF_TRUE_3dbe0c33
+goto Bat_IF_FALSE_3dbe0c33
+label Bat_IF_TRUE_3dbe0c33
 push this 0
 push constant 4
 sub
@@ -111,12 +111,12 @@ pop this 0
 push this 0
 push constant 0
 lt
-if-goto Bat_IF_TRUE_2233a741
-goto Bat_IF_FALSE_2233a741
-label Bat_IF_TRUE_2233a741
+if-goto Bat_IF_TRUE_bd4e1f18
+goto Bat_IF_FALSE_bd4e1f18
+label Bat_IF_TRUE_bd4e1f18
 push constant 0
 pop this 0
-label Bat_IF_FALSE_2233a741
+label Bat_IF_FALSE_bd4e1f18
 push constant 0
 call Screen.setColor 1
 pop temp 0
@@ -150,8 +150,8 @@ push this 3
 add
 call Screen.drawRectangle 4
 pop temp 0
-goto Bat_IF_END_b88b0bf1
-label Bat_IF_FALSE_b88b0bf1
+goto Bat_IF_END_3dbe0c33
+label Bat_IF_FALSE_3dbe0c33
 push this 0
 push constant 4
 add
@@ -161,14 +161,14 @@ push this 2
 add
 push constant 511
 gt
-if-goto Bat_IF_TRUE_2a9026a7
-goto Bat_IF_FALSE_2a9026a7
-label Bat_IF_TRUE_2a9026a7
+if-goto Bat_IF_TRUE_1a1d39e3
+goto Bat_IF_FALSE_1a1d39e3
+label Bat_IF_TRUE_1a1d39e3
 push constant 511
 push this 2
 sub
 pop this 0
-label Bat_IF_FALSE_2a9026a7
+label Bat_IF_FALSE_1a1d39e3
 push constant 0
 call Screen.setColor 1
 pop temp 0
@@ -202,6 +202,6 @@ push this 3
 add
 call Screen.drawRectangle 4
 pop temp 0
-label Bat_IF_END_b88b0bf1
+label Bat_IF_END_3dbe0c33
 push constant 0
 return
