@@ -9,26 +9,84 @@
  * consists of 32,768 words, each holding a 16-bit binary number.
  */ 
 class Memory {
+    static Array freeList;
+    static int length;
+    static int next;
 
     /** Initializes the class. */
     function void init() {
+        /**| length | all available memory
+           | next   | next freeBlock
+           | alloc  |
+           | alloc  |
+           | alloc  |
+        */
+        let freeList = 2048; //2048-16383
+        let length = 0;
+        let freeList[length] = 16383 - 2048 + 1;
+        let next = 1;
+        let freeList[next] = null;
+        return;
     }
 
     /** Returns the RAM value at the given address. */
     function int peek(int address) {
+        var Array memory;
+        let memory = address;
+        return memory[0];
     }
 
     /** Sets the RAM value at the given address to the given value. */
     function void poke(int address, int value) {
+        var Array memory;
+        let memory = address;
+        let memory[0] = value;
+        return;
     }
 
     /** Finds an available RAM block of the given size and returns
      *  a reference to its base address. */
     function int alloc(int size) {
+        var Array b, p, n;
+        //search block from freeList
+        let b = freeList;
+        let p = 0;
+        //if current block have no enough memory
+        //try next until find it or just return
+        //save block's prev pointer for late use
+        while (b[length] < size) {
+            let p = b;
+            let b = b[next];
+            if (b = null) {
+                return -1;
+            }
+        }
+        //split block with block and nextB
+        //set nextB's baseAddr, length, next
+        let n = b + size + 2;
+        let n[length] = b[length] - size - 2;
+        let n[next] = b[next];
+        //reset block's length, next
+        let b[length] = size;
+        let b[next] = null;
+        //mount nextB to freeList
+        if (p = 0) { 
+            let freeList = n;
+        } else {
+            let p[next] = n;
+        }
+        //return the first available ram
+        return b + 2;
     }
 
     /** De-allocates the given object (cast as an array) by making
      *  it available for future allocations. */
     function void deAlloc(Array o) {
+        //make new block and add to head
+        var Array block;
+        let block = o - 2;
+        let block[next] = freeList;
+        let freeList = block;
+        return;
     }    
 }
