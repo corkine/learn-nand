@@ -1,0 +1,138 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/12/Screen.jack
+
+/**
+ * A library of functions for displaying graphics on the screen.
+ * The Hack physical screen consists of 256 rows (indexed 0..255, top to bottom)
+ * of 512 pixels each (indexed 0..511, left to right). The top left pixel on 
+ * the screen is indexed (0,0).
+ */
+class Screen {
+
+    static boolean isBlack;
+    static Array data;
+
+    /** Initializes the Screen. */
+    function void init() {
+        let isBlack = true;
+        let data = 16384;
+        return;
+    }
+
+    /** Erases the entire screen. */
+    function void clearScreen() {
+        var int row, column;
+        while (row < 256) {
+            while (column < 512) {
+                do data[row*512+column] = false;
+            }
+        }
+        return;
+    }
+
+    /** Sets the current color, to be used for all subsequent drawXXX commands.
+     *  Black is represented by true, white by false. */
+    function void setColor(boolean b) {
+        let isBlack = b;
+        return;
+    }
+
+    /** Draws the (x,y) pixel, using the current color. */
+    function void drawPixel(int x, int y) {
+        do data[y*512+x] = isBlack;
+        return;
+    }
+
+    /** Draws a line from pixel (x1,y1) to pixel (x2,y2), using the current color. */
+    function void drawLine(int x1, int y1, int x2, int y2) {
+        var int min, max, dx, dy, a, b, temp, x, y, l2r;
+        if ((x1 - x2) = 0) {
+            if (y1 < y2) {
+                let min = y1;
+                let max = y2;
+            } else {
+                let min = y2;
+                let max = y1;
+            }
+            while (min < max) {
+                do drawPixel(x1, min);
+                let min = min + 1;
+            }
+            return;
+        }
+        if ((y1 - y2) = 0) {
+            if (x1 < x2) {
+                let min = x1;
+                let max = x2;
+            } else {
+                let min = x2;
+                let max = x1;
+            }
+            while (min < max) {
+                do drawPixel(min, y1);
+                let min = min + 1;
+            }
+            return;
+        }
+        if ((x1 = x2) & (y1 = y2)) {
+            return;
+        }
+        if (((x1 < x2) & (y1 < y2)) | ((x1 > x2) & (y1 > y2))) {
+            let l2r = true;
+        } else {
+            let l2r = false;
+        }
+        let dx = Math.abs(x1 - x2);
+        let dy = Math.abs(y1 - y2);
+        if (l2r) {
+            let x = Math.min(x1, x2);
+        } else {
+            let x = Math.max(x1, x2);
+        }
+        let y = Math.min(y1, y2);
+        while ((~(a > dx)) & (~(b > dy))) {
+            if (l2r) {
+                do drawPixel(x + a, y + b);
+            } else {
+                do drawPixel(x - a, y + b);
+            }
+            //a/dx < b/dy -> a*dy - b*dx < 0
+            if (temp < 0) {
+                let a = a + 1;
+                let temp = temp + dy;
+            } else {
+                let b = b + 1;
+                let temp = temp - dx;
+            }
+        }
+        return;
+    }
+
+    /** Draws a filled rectangle whose top left corner is (x1, y1)
+     * and bottom right corner is (x2,y2), using the current color. */
+    function void drawRectangle(int x1, int y1, int x2, int y2) {
+        while (x1 < x2) {
+            while (y1 < y2) {
+                do drawPixel(x1, y1);
+                let y1 = y1 + 1;
+            }
+            let x1 = x1 + 1;
+        }
+        return;
+    }
+
+    /** Draws a filled circle of radius r<=181 around (x,y), using the current color. */
+    function void drawCircle(int x, int y, int r) {
+        var int i, temp1, temp2;
+        let i = -r;
+        while (i < r) {
+            let temp1 = Math.sqrt((r*r) - (i*i));
+            let temp2 = y + i;
+            do drawLine(x-temp,temp2,x+temp,temp2);
+            let i = i + 1;
+        }
+        return;
+    }
+}
